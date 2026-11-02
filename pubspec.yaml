@@ -1,0 +1,21 @@
+name: ts_center_gps
+description: TS center GPS route mapping and calibration
+publish_to: 'none'
+version: 1.0.0+1
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  geolocator: ^13.0.2
+  shared_preferences: ^2.3.2
+  file_picker: ^8.1.2
+  share_plus: ^10.1.2
+  cross_file: ^0.3.4+2
+  firebase_core: ^5.1.0
+  firebase_database: ^13.0.1
+  flutter_tts: ^4.0.2
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/center_map.png
