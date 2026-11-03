@@ -30,7 +30,7 @@ class AppConfig {
 
   // ── 주행 시뮬레이션 ─────────────────────────────────────────────
   static const int tickMs = 500;
-  static const double routeLengthKm = 1.27;
+  static const double routeLengthKm = 1.298; // 2026-11-02 GPS 기록 기반 약 1.298km
   static const double maxSpeedKmh = 80;
   static const double speedLimitKmh = 40;
   static const double busCruiseKmh = 25;
@@ -42,7 +42,7 @@ class AppConfig {
   static const double offRouteThresholdM = 12;
   static const double offRouteConfirmSeconds = 3;
   static const double gpsOffRouteThresholdM = 18;
-  static const double gpsSmoothing = 0.6;
+  static const double gpsSmoothing = 0.85; // GPS 원본 위치 반영 비율
   static const double gpsAccuracyLimitM = 40;
   static const double gpsMaxSpeedMps = 30;
 
