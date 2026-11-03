@@ -120,8 +120,9 @@ class GpsDriveTracker {
     );
 
     final candidate = projected.distanceMeters;
-    final forwardDelta = (candidate - currentMeters) % route.totalMeters;
-    final plausibleForward = forwardDelta <= searchWindow;
+    final signedDelta = candidate - currentMeters;
+    final plausibleForward = signedDelta >= -math.max(12.0, accuracy * 2) &&
+        signedDelta <= searchWindow;
     final nearStartWrap = currentMeters > route.totalMeters * 0.85 &&
         candidate < route.totalMeters * 0.15;
 
