@@ -3,36 +3,41 @@ import 'package:latlong2/latlong.dart';
 import '../core/config.dart';
 import '../core/geo.dart';
 
-// =============================================================================
-// 1. 코스 노선 (실제 화성 시험장 일대 위·경도 좌표 리스트)
-// =============================================================================
-/// 0~1 정규화 픽셀 좌표 대신 실제 지구 위·경도(LatLng) 좌표 목록을 사용합니다.
+// 2026-11-02 현장 GPS 기록(127 fixes)을 기준으로 생성한 실제 순환 코스.
+// 원본 기록을 지역 평면좌표(m)로 변환한 뒤 2.5m RDP 단순화 적용.
+// 첫/마지막 점은 GPS 오차로 약 8m 차이가 나므로 동일 좌표로 닫아 순환 경로로 처리.
 final RouteGeometry kCourseRoute = RouteGeometry(const [
-  LatLng(37.23150, 126.77950),
-  LatLng(37.23180, 126.77980),
-  LatLng(37.23230, 126.78050),
-  LatLng(37.23270, 126.78120),
-  LatLng(37.23310, 126.78200),
-  LatLng(37.23350, 126.78310),
-  LatLng(37.23380, 126.78420),
-  LatLng(37.23400, 126.78500),
-  LatLng(37.23360, 126.78610),
-  LatLng(37.23300, 126.78700),
-  LatLng(37.23200, 126.78750),
-  LatLng(37.23100, 126.78720),
-  LatLng(37.23000, 126.78650),
-  LatLng(37.22900, 126.78520),
-  LatLng(37.22850, 126.78380),
-  LatLng(37.22830, 126.78210),
-  LatLng(37.22860, 126.78080),
-  LatLng(37.22920, 126.77990),
-  LatLng(37.23020, 126.77940),
-  LatLng(37.23150, 126.77950), // 순환 코스 종점(시작점 복귀)
+  LatLng(37.2328522, 126.7788058),
+  LatLng(37.2328921, 126.7788231),
+  LatLng(37.2328435, 126.7789200),
+  LatLng(37.2328202, 126.7796515),
+  LatLng(37.2327869, 126.7797876),
+  LatLng(37.2327475, 126.7798171),
+  LatLng(37.2298318, 126.7796328),
+  LatLng(37.2297061, 126.7796714),
+  LatLng(37.2296540, 126.7798039),
+  LatLng(37.2296102, 126.7807701),
+  LatLng(37.2295140, 126.7809473),
+  LatLng(37.2295259, 126.7810722),
+  LatLng(37.2296286, 126.7811285),
+  LatLng(37.2298096, 126.7810833),
+  LatLng(37.2302752, 126.7812411),
+  LatLng(37.2305272, 126.7812785),
+  LatLng(37.2318780, 126.7810824),
+  LatLng(37.2329028, 126.7809961),
+  LatLng(37.2331565, 126.7809020),
+  LatLng(37.2333707, 126.7807260),
+  LatLng(37.2335719, 126.7803586),
+  LatLng(37.2337271, 126.7797928),
+  LatLng(37.2337333, 126.7793639),
+  LatLng(37.2336073, 126.7789706),
+  LatLng(37.2334656, 126.7787475),
+  LatLng(37.2332919, 126.7785824),
+  LatLng(37.2329868, 126.7784154),
+  LatLng(37.2329011, 126.7784977),
+  LatLng(37.2328522, 126.7788058),
 ]);
 
-// =============================================================================
-// 2. 턴 종류 (TTS 및 내비게이션 안내)
-// =============================================================================
 enum NavTurnKind {
   straight,
   slightLeft,
@@ -75,17 +80,24 @@ class RouteTurn {
   bool get rightTurn => angleDeg > 0;
 }
 
-// =============================================================================
-// 3. 실제 위·경도 기반 코스 기하 연산 엔진 (RouteGeometry)
-// =============================================================================
 class RouteGeometry {
   RouteGeometry(this.points) {
-    _cumulativeMeters.add(0.0);
-    const distanceCalc = Distance();
+    if (points.length < 2) {
+      throw ArgumentError('코스 좌표는 2개 이상 필요합니다.');
+    }
+    _originLat = points.first.latitude;
+    _originLon = points.first.longitude;
+    _cosLat = math.cos(_originLat * math.pi / 180.0);
 
+    for (final point in points) {
+      _localPoints.add(_toLocal(point));
+    }
+
+    _cumulativeMeters.add(0.0);
     for (var i = 0; i < points.length - 1; i++) {
-      // Haversine 공식을 사용해 실제 지점 간 거리(미터) 계산
-      final len = distanceCalc.as(LengthUnit.Meter, points[i], points[i + 1]);
+      final a = _localPoints[i];
+      final b = _localPoints[i + 1];
+      final len = (b - a).distance;
       _segmentLengthsMeters.add(len);
       _cumulativeMeters.add(_cumulativeMeters.last + len);
     }
@@ -94,8 +106,10 @@ class RouteGeometry {
   }
 
   final List<LatLng> points;
+  final List<Offset> _localPoints = [];
   final List<double> _segmentLengthsMeters = [];
   final List<double> _cumulativeMeters = [];
+  late final double _originLat, _originLon, _cosLat;
   late final double _totalMeters;
   late final List<RouteTurn> _turns;
 
@@ -103,83 +117,121 @@ class RouteGeometry {
   double get totalKm => _totalMeters / 1000.0;
   List<RouteTurn> get turns => List.unmodifiable(_turns);
 
-  /// 누적 이동 거리(m) 지점의 실제 위·경도 좌표 산출
+  Offset _toLocal(LatLng p) => Offset(
+        (p.longitude - _originLon) * 111320.0 * _cosLat,
+        (p.latitude - _originLat) * 110574.0,
+      );
+
   LatLng pointAtDistance(double meters) {
-    final targetMeters = meters.clamp(0.0, _totalMeters);
+    final targetMeters = meters.clamp(0.0, _totalMeters).toDouble();
     for (var i = 0; i < _segmentLengthsMeters.length; i++) {
-      if (targetMeters <= _cumulativeMeters[i + 1] || i == _segmentLengthsMeters.length - 1) {
+      if (targetMeters <= _cumulativeMeters[i + 1] ||
+          i == _segmentLengthsMeters.length - 1) {
         final len = _segmentLengthsMeters[i];
-        final t = len == 0 ? 0.0 : (targetMeters - _cumulativeMeters[i]) / len;
-        
-        final lat = points[i].latitude + (points[i + 1].latitude - points[i].latitude) * t;
-        final lon = points[i].longitude + (points[i + 1].longitude - points[i].longitude) * t;
-        return LatLng(lat, lon);
+        final t = len == 0
+            ? 0.0
+            : ((targetMeters - _cumulativeMeters[i]) / len).clamp(0.0, 1.0);
+        final a = points[i];
+        final b = points[i + 1];
+        return LatLng(
+          a.latitude + (b.latitude - a.latitude) * t,
+          a.longitude + (b.longitude - a.longitude) * t,
+        );
       }
     }
     return points.last;
   }
 
-  /// 0.0~1.0 비율 진행률 기반 좌표 반환 (하위 호환용)
-  LatLng pointAt(double progress) {
-    return pointAtDistance(clamp01(progress) * _totalMeters);
-  }
+  LatLng pointAt(double progress) =>
+      pointAtDistance(clamp01(progress) * _totalMeters);
 
-  /// 현재 위치(LatLng)에서 가장 가까운 코스 상의 위치와 누적 이격 거리(m)를 도출
-  ({double distanceMeters, double offRouteDistanceMeters, LatLng closestPoint}) projectLatLng(LatLng pos) {
-    const distanceCalc = Distance();
-    var minOffDistance = double.infinity;
-    var bestCumulativeMeters = 0.0;
-    var bestPoint = points.first;
+  /// GPS 좌표를 각 선분에 미터 단위로 투영한다.
+  /// hintDistanceMeters가 주어지면 현재 진행 위치 주변의 선분을 우선 탐색해
+  /// 교차로나 서로 가까운 도로에서 다른 구간으로 순간 이동하는 현상을 줄인다.
+  ({
+    double distanceMeters,
+    double offRouteDistanceMeters,
+    LatLng closestPoint,
+  }) projectLatLng(
+    LatLng pos, {
+    double? hintDistanceMeters,
+    double searchWindowMeters = double.infinity,
+  }) {
+    final p = _toLocal(pos);
+    var bestGlobalDistance = double.infinity;
+    var bestGlobalAlong = 0.0;
+    var bestGlobalPoint = points.first;
+    var bestLocalDistance = double.infinity;
+    var bestLocalAlong = 0.0;
+    var bestLocalPoint = points.first;
+    var foundLocal = false;
 
-    for (var i = 0; i < points.length - 1; i++) {
-      final a = points[i];
-      final b = points[i + 1];
+    for (var i = 0; i < _segmentLengthsMeters.length; i++) {
+      final a = _localPoints[i];
+      final b = _localPoints[i + 1];
+      final v = b - a;
+      final lenSq = v.dx * v.dx + v.dy * v.dy;
+      if (lenSq <= 1e-9) continue;
 
-      // 두 위경도 선분 위에 현재 좌표 투영
-      final segLen = _segmentLengthsMeters[i];
-      if (segLen == 0) continue;
+      final t = (((p.dx - a.dx) * v.dx + (p.dy - a.dy) * v.dy) / lenSq)
+          .clamp(0.0, 1.0)
+          .toDouble();
+      final q = Offset(a.dx + v.dx * t, a.dy + v.dy * t);
+      final off = (p - q).distance;
+      final along = _cumulativeMeters[i] + _segmentLengthsMeters[i] * t;
+      final latLngA = points[i];
+      final latLngB = points[i + 1];
+      final projected = LatLng(
+        latLngA.latitude + (latLngB.latitude - latLngA.latitude) * t,
+        latLngA.longitude + (latLngB.longitude - latLngA.longitude) * t,
+      );
 
-      final dAB = distanceCalc.as(LengthUnit.Meter, a, b);
-      final dAP = distanceCalc.as(LengthUnit.Meter, a, pos);
-      final dBP = distanceCalc.as(LengthUnit.Meter, b, pos);
-
-      // 간단한 삼각 수선 투영 근사
-      double t = 0.0;
-      if (dAB > 0) {
-        t = ((dAP * dAP - dBP * dBP + dAB * dAB) / (2 * dAB * dAB)).clamp(0.0, 1.0);
+      if (off < bestGlobalDistance) {
+        bestGlobalDistance = off;
+        bestGlobalAlong = along;
+        bestGlobalPoint = projected;
       }
 
-      final projLat = a.latitude + (b.latitude - a.latitude) * t;
-      final projLon = a.longitude + (b.longitude - a.longitude) * t;
-      final projPt = LatLng(projLat, projLon);
-
-      final offDist = distanceCalc.as(LengthUnit.Meter, pos, projPt);
-      if (offDist < minOffDistance) {
-        minOffDistance = offDist;
-        bestCumulativeMeters = _cumulativeMeters[i] + (segLen * t);
-        bestPoint = projPt;
+      if (hintDistanceMeters != null) {
+        final delta = (along - hintDistanceMeters).abs();
+        final circularDelta = math.min(delta, _totalMeters - delta);
+        if (circularDelta > searchWindowMeters) continue;
+      }
+      foundLocal = true;
+      if (off < bestLocalDistance) {
+        bestLocalDistance = off;
+        bestLocalAlong = along;
+        bestLocalPoint = projected;
       }
     }
 
+    if (foundLocal) {
+      return (
+        distanceMeters: bestLocalAlong,
+        offRouteDistanceMeters: bestLocalDistance,
+        closestPoint: bestLocalPoint,
+      );
+    }
     return (
-      distanceMeters: bestCumulativeMeters,
-      offRouteDistanceMeters: minOffDistance,
-      closestPoint: bestPoint,
+      distanceMeters: bestGlobalAlong,
+      offRouteDistanceMeters: bestGlobalDistance,
+      closestPoint: bestGlobalPoint,
     );
   }
 
-  /// 💡 [핵심] 실제 잔여 거리(m)와 차량의 실시간 속도(km/h) 기반 남은 소요 시간(초/분) 계산
-  ({double remainingMeters, double remainingKm, int estimatedSeconds, int estimatedMinutes}) calculateETA({
+  ({
+    double remainingMeters,
+    double remainingKm,
+    int estimatedSeconds,
+    int estimatedMinutes,
+  }) calculateETA({
     required double currentMeters,
     required double speedKmh,
   }) {
     final remainM = math.max(0.0, _totalMeters - currentMeters);
     final remainKm = remainM / 1000.0;
-
-    // 속도가 3km/h 이하로 거의 멈춘 경우 기본 정체 속도(15km/h)로 폴백 계산
     final effectiveSpeed = speedKmh >= 3.0 ? speedKmh : 15.0;
     final seconds = (remainKm / effectiveSpeed * 3600).round();
-
     return (
       remainingMeters: remainM,
       remainingKm: remainKm,
@@ -188,34 +240,21 @@ class RouteGeometry {
     );
   }
 
-  /// 실제 위·경도 궤적을 순회하며 코스의 곡률(진행 방위각 변화)로 턴 구간 감지
   List<RouteTurn> _findTurns() {
     final out = <RouteTurn>[];
     const distanceCalc = Distance();
-
     for (var i = 1; i < points.length - 1; i++) {
-      final pPrev = points[i - 1];
-      final pCurr = points[i];
-      final pNext = points[i + 1];
-
-      final bearing1 = distanceCalc.bearing(pPrev, pCurr);
-      final bearing2 = distanceCalc.bearing(pCurr, pNext);
-
+      final bearing1 = distanceCalc.bearing(points[i - 1], points[i]);
+      final bearing2 = distanceCalc.bearing(points[i], points[i + 1]);
       var diff = bearing2 - bearing1;
-      while (diff < -180) {
-        diff += 360;
-      }
-      while (diff > 180) {
-        diff -= 360;
-      }
-
+      while (diff < -180) { diff += 360; }
+      while (diff > 180) { diff -= 360; }
       if (diff.abs() < AppConfig.turnMinAngleDeg) continue;
-
       out.add(RouteTurn(
         distanceMeters: _cumulativeMeters[i],
         angleDeg: diff,
         kind: _classifyTurn(diff),
-        position: pCurr,
+        position: points[i],
       ));
     }
     return out;
@@ -229,9 +268,9 @@ class RouteGeometry {
     return NavTurnKind.uTurn;
   }
 
-  /// 현재 구동 위치(m) 이후의 다음 턴 안내
-  ({RouteTurn? turn, double distanceToTurnMeters}) nextTurnAtDistance(double currentMeters) {
-    if (_turns.isEmpty) return (turn: null, distanceToTurnMeters: 0);
+  ({RouteTurn? turn, double distanceToTurnMeters}) nextTurnAtDistance(
+    double currentMeters,
+  ) {
     for (final t in _turns) {
       if (t.distanceMeters > currentMeters) {
         return (turn: t, distanceToTurnMeters: t.distanceMeters - currentMeters);
@@ -241,10 +280,10 @@ class RouteGeometry {
   }
 }
 
-/// 현재 차량의 진행 방향 방위각(Bearing/Heading, Degree 0~360) 산출
 double routeHeadingAtDistance(RouteGeometry r, double currentMeters) {
   const distanceCalc = Distance();
   final a = r.pointAtDistance(currentMeters);
-  final b = r.pointAtDistance(math.min(r.totalMeters, currentMeters + 3.0)); // 3미터 앞 지점 참조
+  final target = r.totalMeters <= 0 ? 0.0 : (currentMeters + 3.0) % r.totalMeters;
+  final b = r.pointAtDistance(target);
   return distanceCalc.bearing(a, b);
 }
