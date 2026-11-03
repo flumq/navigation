@@ -430,9 +430,13 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
         : _iconFor(nextTurn.kind);
     final guideText = nextTurn == null ? '직진' : nextTurn.kind.label;
 
-    final remainKm = (1 - progress) * AppConfig.routeLengthKm;
     final speed = _speed;
-    final etaMin = speed >= 3 ? (remainKm / speed * 60).round() : null;
+    final eta = kCourseRoute.calculateETA(
+      currentMeters: _currentMeters,
+      speedKmh: speed,
+    );
+    final remainKm = eta.remainingKm;
+    final etaMin = speed >= 3 ? eta.estimatedMinutes : null;
     final waiting = !_simMode && !_gps.hasFix;
     final topInset = MediaQuery.paddingOf(context).top;
 
