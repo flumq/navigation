@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show Offset;
 import 'package:latlong2/latlong.dart';
 import '../core/config.dart';
 import '../core/geo.dart';
@@ -130,7 +131,7 @@ class RouteGeometry {
         final len = _segmentLengthsMeters[i];
         final t = len == 0
             ? 0.0
-            : ((targetMeters - _cumulativeMeters[i]) / len).clamp(0.0, 1.0);
+            : ((targetMeters - _cumulativeMeters[i]) / len).clamp(0.0, 1.0).toDouble();
         final a = points[i];
         final b = points[i + 1];
         return LatLng(
