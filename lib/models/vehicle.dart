@@ -1,4 +1,4 @@
-import 'dart:ui' show Offset;
+import 'package:latlong2/latlong.dart';
 
 import '../core/config.dart';
 
@@ -41,8 +41,8 @@ class VehicleState {
   final VehicleType type;
   final double progress, speedKmh, deviation;
 
-  /// 정규화 지도 좌표(0~1).
-  final Offset position;
+  /// 💡 기존 가상 픽셀 Offset 대신 실제 지도 위·경도(LatLng) 좌표를 사용합니다.
+  final LatLng position;
   final bool isOffRoute;
   final String location, status;
 

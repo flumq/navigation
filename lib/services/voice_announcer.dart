@@ -85,23 +85,26 @@ class NavAnnouncer {
   /// `GpsDriveTracker`, `VehicleSimulator`의 onLap 콜백으로 연결한다.
   void onLap(int laps) => say('$laps바퀴를 완주했습니다');
 
-  void checkTurn({required double progress, required RouteGeometry route}) {
+  /// 💡 개편된 위·경도·미터 기반 RouteGeometry와 호환되도록 체크 로직 정돈
+  void checkTurn({required double currentMeters, required RouteGeometry route}) {
     if (!_enabled) return;
-    final next = route.nextTurn(progress);
+    
+    // 신규 미터 기반 nextTurnAtDistance 호출
+    final next = route.nextTurnAtDistance(currentMeters);
     final t = next.turn;
     if (t == null) return;
 
-    final key = '${(t.progress * 100000).round()}';
+    final key = '${t.distanceMeters.round()}';
     const thresholds = [300.0, 100.0, 30.0];
 
     for (final d in thresholds) {
       final k = '${key}_${d.toInt()}';
-      if (next.meters < d && !_fired.contains(k)) {
+      if (next.distanceToTurnMeters < d && !_fired.contains(k)) {
         // 더 가까운 단계를 울렸다면 그보다 먼 단계는 함께 소진한다.
         for (final d2 in thresholds) {
           if (d2 >= d) _fired.add('${key}_${d2.toInt()}');
         }
-        final msg = _buildTurnMessage(t, next.meters, d);
+        final msg = _buildTurnMessage(t, next.distanceToTurnMeters, d);
         if (msg != null) say(msg);
         return;
       }
@@ -109,15 +112,6 @@ class NavAnnouncer {
   }
 
   String? _buildTurnMessage(RouteTurn t, double meters, double threshold) {
-    if (t.kind == NavTurnKind.roundabout && t.roundabout != null) {
-      final ra = t.roundabout!;
-      if (threshold >= 300) return '잠시 후 회전교차로 진입입니다';
-      if (threshold >= 100) {
-        return '회전교차로입니다. ${ra.clockDirection}시 방향 ${ra.exitNumber}번째 출구로 진출하세요';
-      }
-      return '${ra.clockDirection}시 방향 ${ra.exitNumber}번째 출구';
-    }
-
     final verb = t.kind.label;
     if (threshold >= 300) return '잠시 후 $verb입니다';
     if (threshold >= 100) return '${meters.round()}미터 앞, $verb입니다';

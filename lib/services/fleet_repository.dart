@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:ui' show Offset;
 
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../core/config.dart';
 import '../models/vehicle.dart';
@@ -17,16 +17,11 @@ abstract class FleetRepository extends ChangeNotifier {
   Iterable<VehicleState> get vehicles;
   bool isActive(String id);
 
-  /// 차량 상태(궤적 제외). 이동/상태 변화 시에만 실제로 쓴다.
   void publish(VehicleState s);
-
-  /// 궤적만 쓴다. 버스 전용, [AppConfig.trailUploadSec]초마다 호출한다.
   void publishTrail(String id, List<TrailPoint> trail);
-
   void remove(String id);
 }
 
-/// Firebase 없이 같은 기기 안에서만 동작하는 저장소.
 class LocalFleetRepository extends FleetRepository {
   LocalFleetRepository._();
   static final LocalFleetRepository instance = LocalFleetRepository._();
@@ -96,8 +91,11 @@ class FirebaseFleetRepository extends FleetRepository {
     final prev = _lastWritten[key];
     final last = _lastWriteAt[key];
     final now = DateTime.now();
-    final moved =
-        prev == null ? double.infinity : mapDistanceM(prev.position, s.position);
+    
+    // 거리 계산은 LatLng 간 Haversine 거리 적용
+    const distCalc = Distance();
+    final moved = prev == null ? double.infinity : distCalc.as(LengthUnit.Meter, prev.position, s.position);
+    
     final important = prev == null ||
         prev.isOffRoute != s.isOffRoute ||
         prev.status != s.status ||
@@ -199,8 +197,8 @@ class FirebaseFleetRepository extends FleetRepository {
         'speedKmh': s.speedKmh,
         'avgSpeedKmh': s.avgSpeedKmh,
         'laps': s.laps,
-        'x': s.position.dx,
-        'y': s.position.dy,
+        'lat': s.position.latitude,
+        'lon': s.position.longitude,
         'deviation': s.deviation,
         'isOffRoute': s.isOffRoute,
         'location': s.location,
@@ -208,23 +206,27 @@ class FirebaseFleetRepository extends FleetRepository {
         'updatedAt': ServerValue.timestamp,
       };
 
-  VehicleState _fromJson(Map v, List<TrailPoint> trail) => VehicleState(
-        id: (v['id'] ?? '').toString(),
-        type: VehicleType.values.firstWhere(
-          (t) => t.name == v['type'],
-          orElse: () => VehicleType.taxi,
-        ),
-        progress: _d(v['progress']),
-        speedKmh: _d(v['speedKmh']),
-        avgSpeedKmh: _d(v['avgSpeedKmh']),
-        laps: (v['laps'] as num?)?.toInt() ?? 0,
-        position: Offset(_d(v['x']), _d(v['y'])),
-        deviation: _d(v['deviation']),
-        isOffRoute: v['isOffRoute'] == true,
-        location: (v['location'] ?? '').toString(),
-        status: (v['status'] ?? '').toString(),
-        trail: trail,
-      );
+  VehicleState _fromJson(Map v, List<TrailPoint> trail) {
+    final lat = _d(v['lat'] ?? v['y']);
+    final lon = _d(v['lon'] ?? v['x']);
+    return VehicleState(
+      id: (v['id'] ?? '').toString(),
+      type: VehicleType.values.firstWhere(
+        (t) => t.name == v['type'],
+        orElse: () => VehicleType.taxi,
+      ),
+      progress: _d(v['progress']),
+      speedKmh: _d(v['speedKmh']),
+      avgSpeedKmh: _d(v['avgSpeedKmh']),
+      laps: (v['laps'] as num?)?.toInt() ?? 0,
+      position: LatLng(lat, lon),
+      deviation: _d(v['deviation']),
+      isOffRoute: v['isOffRoute'] == true,
+      location: (v['location'] ?? '').toString(),
+      status: (v['status'] ?? '').toString(),
+      trail: trail,
+    );
+  }
 
   static double _d(Object? v) => v is num ? v.toDouble() : 0;
 
@@ -236,7 +238,6 @@ class FirebaseFleetRepository extends FleetRepository {
   }
 }
 
-/// 화면은 항상 이것을 통해 저장소를 얻는다.
 class FleetHub {
   FleetHub._();
   static bool firebaseReady = false;

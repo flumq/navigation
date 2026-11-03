@@ -2,13 +2,14 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../core/config.dart';
 import '../core/geo.dart';
 import '../drive/gps_drive_tracker.dart';
 import '../drive/simulator.dart';
-import '../map/nav_overlay_painter.dart';
 import '../models/course.dart';
 import '../models/pickup.dart';
 import '../models/vehicle.dart';
@@ -74,7 +75,7 @@ class RideState {
 }
 
 // =============================================================================
-// 2. 택시 내비 화면
+// 2. 택시 내비 화면 (오픈소스 맵 기반)
 // =============================================================================
 class TaxiNaviScreen extends StatefulWidget {
   const TaxiNaviScreen({super.key, required this.studentId});
@@ -89,6 +90,8 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
   final FleetRepository _fleet = FleetHub.current;
   late final VehicleSimulator _sim;
   late final GpsDriveTracker _gps;
+  final MapController _mapController = MapController();
+
   StreamSubscription<Position>? _gpsSub;
   Timer? _timer;
   Timer? _callTimer;
@@ -132,9 +135,6 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
     super.dispose();
   }
 
-  // ---------------------------------------------------------------------------
-  // GPS / 시뮬레이션
-  // ---------------------------------------------------------------------------
   Future<void> _startGps() async {
     final error = await ensureGpsReady();
     if (!mounted) return;
@@ -172,14 +172,19 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
   }
 
   double get _progress => _simMode ? _sim.progress : (_gps.progress ?? 0);
+  double get _currentMeters => _progress * kCourseRoute.totalMeters;
   double get _speed => _simMode ? _sim.speedKmh : _gps.speedKmh;
   bool get _offRoute => _simMode ? _sim.isOffRoute : _gps.isOffRoute;
 
-  Offset get _vehiclePos {
+  /// 💡 차량의 실제 위·경도 좌표 산출 (LatLng 직접 반환)
+  LatLng get _vehicleLatLng {
     if (_simMode) {
-      return kCourseRoute.positionWithOffset(_sim.progress, _sim.lateral);
+      return _sim.position;
     }
-    return _gps.position ?? kCourseRoute.pointAt(_progress);
+    if (_gps.position != null) {
+      return _gps.position!;
+    }
+    return kCourseRoute.pointAt(_progress);
   }
 
   void _tick() {
@@ -194,9 +199,15 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
       ));
     }
 
-    NavAnnouncer.instance.checkTurn(progress: _progress, route: kCourseRoute);
+    // 💡 미터 단위 거리를 기반으로 TTS 턴 체크 호출
+    NavAnnouncer.instance.checkTurn(currentMeters: _currentMeters, route: kCourseRoute);
     NavAnnouncer.instance.checkSpeed(_speed);
     NavAnnouncer.instance.checkOffRoute(_offRoute);
+
+    final latLng = _vehicleLatLng;
+    try {
+      _mapController.move(latLng, _mapController.camera.zoom);
+    } catch (_) {}
 
     setState(() {});
   }
@@ -222,8 +233,6 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
         Timer.periodic(const Duration(seconds: 1), (_) => _tickRide());
   }
 
-  /// 현재 위치 기준 호출 가능 거리 안의 승차 지점 중 하나를 고른다.
-  /// 직전에 호출한 지점은 피한다.
   PickupPoint? _pickCallTarget() {
     final candidates = PickupStore.instance.pickupOnly.where((p) {
       final km = forwardProgress(_progress, p.progress) * AppConfig.routeLengthKm;
@@ -342,7 +351,6 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
     }
   }
 
-  /// 탑승 후 2초 뒤 하차 지점을 정하고 운행을 시작한다.
   void _startTripAfterBoarding() {
     Future.delayed(const Duration(seconds: 2), () {
       if (!mounted || _ride.phase != RidePhase.boarding) return;
@@ -389,8 +397,6 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
     });
   }
 
-  /// 목표 지점까지 앞으로 [AppConfig.pickupArrivalM] 이내이거나,
-  /// 방금 지나친 [AppConfig.pickupPassM] 이내이면 도착으로 본다.
   bool _nearProgress(double target) {
     final ahead = forwardProgress(_progress, target);
     final lenM = AppConfig.routeLengthKm * 1000;
@@ -400,9 +406,6 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
         behindM <= AppConfig.pickupPassM;
   }
 
-  // ---------------------------------------------------------------------------
-  // 화면
-  // ---------------------------------------------------------------------------
   IconData _iconFor(NavTurnKind kind) => switch (kind) {
         NavTurnKind.left => Icons.turn_left,
         NavTurnKind.right => Icons.turn_right,
@@ -418,18 +421,14 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
   @override
   Widget build(BuildContext context) {
     final progress = _progress;
-    final next = kCourseRoute.nextTurn(progress);
+    // 💡 미터 기반 nextTurnAtDistance 호출 및 안전한 방어 처리
+    final next = kCourseRoute.nextTurnAtDistance(_currentMeters);
     final nextTurn = next.turn;
+    
     final guideIcon = nextTurn == null
         ? Icons.straight
-        : (nextTurn.isRoundabout
-            ? Icons.roundabout_left
-            : _iconFor(nextTurn.kind));
+        : _iconFor(nextTurn.kind);
     final guideText = nextTurn == null ? '직진' : nextTurn.kind.label;
-    final roundaboutHint = nextTurn?.isRoundabout == true
-        ? '${nextTurn!.roundabout!.clockDirection}시 방향 '
-            '${nextTurn.roundabout!.exitNumber}번째 출구'
-        : null;
 
     final remainKm = (1 - progress) * AppConfig.routeLengthKm;
     final speed = _speed;
@@ -437,22 +436,87 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
     final waiting = !_simMode && !_gps.hasFix;
     final topInset = MediaQuery.paddingOf(context).top;
 
+    // 💡 kCourseRoute.points는 이미 LatLng 리스트이므로 그대로 활용
+    final routeLatLngs = kCourseRoute.points;
+
+    // 💡 승하차 지점 마커 구성 (p.latLng 활용)
+    final pickupMarkers = PickupStore.instance.points.map((p) {
+      return Marker(
+        point: p.latLng,
+        width: 30,
+        height: 30,
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: p.kind == PickupKind.pickup ? Colors.blue : Colors.orange,
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+          child: const Icon(Icons.place, color: Colors.white, size: 14),
+        ),
+      );
+    }).toList();
+
+    final currentPos = _vehicleLatLng;
+    final vehicleMarker = Marker(
+      point: currentPos,
+      width: 42,
+      height: 42,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [BoxShadow(color: Color(0x40000000), blurRadius: 6)],
+        ),
+        child: const Icon(
+          Icons.navigation,
+          color: Colors.blueAccent,
+          size: 24,
+        ),
+      ),
+    );
+
     return Scaffold(
-      backgroundColor: NavStyle.bg,
+      backgroundColor: Colors.grey.shade900,
       body: ListenableBuilder(
         listenable: _fleet,
         builder: (context, _) => Stack(children: [
-          Positioned.fill(child: _rotatingMap(progress)),
+          Positioned.fill(
+            child: FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: currentPos,
+                initialZoom: 17.0,
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.center_navigation',
+                ),
+                if (routeLatLngs.isNotEmpty)
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: routeLatLngs,
+                        color: Colors.teal,
+                        strokeWidth: 5.0,
+                      ),
+                    ],
+                  ),
+                MarkerLayer(
+                  markers: [...pickupMarkers, vehicleMarker],
+                ),
+              ],
+            ),
+          ),
           Positioned(
             top: topInset + 8,
             left: 12,
             right: 12,
             child: _topCard(
               icon: _offRoute ? Icons.warning_rounded : guideIcon,
-              title: _offRoute ? '경로 이탈' : formatNavDistance(next.meters),
+              title: _offRoute ? '경로 이탈' : '${next.distanceToTurnMeters.toStringAsFixed(0)}m',
               subtitle: _offRoute ? '차선 복귀가 필요합니다' : '$guideText · 다음 안내',
               off: _offRoute,
-              roundaboutHint: roundaboutHint,
             ),
           ),
           if (_ride.phase == RidePhase.accepted && _ride.call != null)
@@ -498,89 +562,10 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
           ),
           if (_ride.phase == RidePhase.incoming && _ride.call != null)
             _incomingCallCard(_ride.call!),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Center(
-                child: Transform.translate(
-                  offset: Offset(
-                    0,
-                    MediaQuery.sizeOf(context).height *
-                        (NavStyle.vehicleYRatio - 0.5),
-                  ),
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(color: Color(0x40000000), blurRadius: 6),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.navigation,
-                      color: NavStyle.routeAhead,
-                      size: 24,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
         ]),
       ),
     );
   }
-
-  /// 차량 진행 방향이 위로 향하도록 회전한 지도.
-  Widget _rotatingMap(double progress) => LayoutBuilder(
-        builder: (context, constraints) {
-          final size = constraints.biggest;
-          const mapW = AppConfig.mapWidthPx;
-          const mapH = AppConfig.mapHeightPx;
-          final center = Offset(
-            size.width / 2,
-            size.height * NavStyle.vehicleYRatio,
-          );
-          final vPos = _vehiclePos;
-          final vx = vPos.dx * mapW, vy = vPos.dy * mapH;
-          final heading = routeHeadingAt(kCourseRoute, progress);
-          final angle = -math.pi / 2 - heading;
-
-          final transform = Matrix4.identity()
-            ..translate(center.dx, center.dy)
-            ..rotateZ(angle)
-            ..scale(NavStyle.scale)
-            ..translate(-vx, -vy);
-
-          return ClipRect(
-            child: Stack(fit: StackFit.expand, children: [
-              Transform(
-                transform: transform,
-                child: SizedBox(
-                  width: mapW,
-                  height: mapH,
-                  child: Image.asset(AppConfig.mapAsset, fit: BoxFit.fill),
-                ),
-              ),
-              Transform(
-                transform: transform,
-                child: CustomPaint(
-                  size: const Size(mapW, mapH),
-                  painter: NavOverlayPainter(
-                    progress: progress,
-                    route: kCourseRoute,
-                    others: _fleet.vehicles
-                        .where((v) => v.id != widget.studentId)
-                        .toList(),
-                    pickups: PickupStore.instance.points,
-                  ),
-                ),
-              ),
-            ]),
-          );
-        },
-      );
 
   Widget _banner({
     required double top,
@@ -759,12 +744,11 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
     required String title,
     required String subtitle,
     required bool off,
-    String? roundaboutHint,
   }) =>
       Container(
         padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
         decoration: BoxDecoration(
-          color: off ? AppColors.red : NavStyle.navy,
+          color: off ? AppColors.red : const Color(0xFF1E293B),
           borderRadius: BorderRadius.circular(18),
           boxShadow: const [
             BoxShadow(
@@ -794,17 +778,6 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
                   subtitle,
                   style: const TextStyle(color: Colors.white70, fontSize: 13),
                 ),
-                if (roundaboutHint != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    roundaboutHint,
-                    style: const TextStyle(
-                      color: Colors.amberAccent,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -876,7 +849,7 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
             value: progress,
             minHeight: 6,
             backgroundColor: Colors.grey.shade200,
-            valueColor: const AlwaysStoppedAnimation(NavStyle.routeAhead),
+            valueColor: const AlwaysStoppedAnimation(Colors.blueAccent),
           ),
         ),
         const SizedBox(height: 8),

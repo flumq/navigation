@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../core/config.dart';
 import '../core/geo.dart';
@@ -8,14 +9,8 @@ import '../models/vehicle.dart';
 import '../services/fleet_repository.dart';
 import '../services/pickup_store.dart';
 import '../widgets/common.dart';
-
 import '../drive/telemetry.dart';
 
-// =============================================================================
-// 1. 리더 선정
-// =============================================================================
-
-/// 리더 = 완주 랩 수가 가장 많고, 동률이면 진행률이 앞선 버스.
 VehicleState? leaderOf(List<VehicleState> buses) {
   if (buses.isEmpty) return null;
   return buses.reduce((a, b) {
@@ -24,9 +19,6 @@ VehicleState? leaderOf(List<VehicleState> buses) {
   });
 }
 
-// =============================================================================
-// 2. 배차 간격 패널 (관리자)
-// =============================================================================
 class HeadwayPanel extends StatelessWidget {
   const HeadwayPanel({super.key, required this.buses, required this.leader});
 
@@ -42,19 +34,16 @@ class HeadwayPanel extends StatelessWidget {
         child: Row(children: [
           const Icon(Icons.route, size: 18, color: AppColors.bus),
           const SizedBox(width: 8),
-          Expanded(
+          const Expanded(
             child: Text(
-              ldr == null
-                  ? '버스 차량이 접속하지 않았습니다.'
-                  : '배차 간격: 버스가 2대 이상 접속하면 자동 계산됩니다.',
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              '배차 간격: 버스가 2대 이상 접속하면 자동 계산됩니다.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ),
         ]),
       );
     }
 
-    // 팔로워에서 리더 방향으로 잰 거리 = 팔로워 뒤에 있는 간격.
     double gapOf(VehicleState f) =>
         forwardProgress(f.progress, ldr.progress) * AppConfig.routeLengthKm;
 
@@ -71,8 +60,7 @@ class HeadwayPanel extends StatelessWidget {
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                '참조 차량: ${ldr.id} '
-                '(${ldr.laps}랩 완주 · 평균 ${ldr.avgSpeedKmh.toStringAsFixed(1)}km/h)',
+                '참조 차량: ${ldr.id} (${ldr.laps}랩 완주 · 평균 ${ldr.avgSpeedKmh.toStringAsFixed(1)}km/h)',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
             ),
@@ -111,10 +99,7 @@ class HeadwayPanel extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Text(
-                    '${gapKm.toStringAsFixed(2)} km',
-                    style: const TextStyle(fontSize: 12),
-                  ),
+                  Text('${gapKm.toStringAsFixed(2)} km', style: const TextStyle(fontSize: 12)),
                   const SizedBox(width: 10),
                   SizedBox(
                     width: 74,
@@ -128,15 +113,6 @@ class HeadwayPanel extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  SizedBox(
-                    width: 76,
-                    child: Text(
-                      '평균 ${avg.toStringAsFixed(1)}km/h',
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(fontSize: 10, color: Colors.grey),
-                    ),
-                  ),
                 ]),
               );
             }),
@@ -146,9 +122,6 @@ class HeadwayPanel extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// 3. 범례
-// =============================================================================
 class MapLegend extends StatelessWidget {
   const MapLegend({super.key});
 
@@ -197,9 +170,6 @@ class _LegendItem extends StatelessWidget {
       );
 }
 
-// =============================================================================
-// 4. 결과 탭 (로그인 게이트 + 실시간 관제)
-// =============================================================================
 class ResultTab extends StatelessWidget {
   const ResultTab({
     super.key,
@@ -219,24 +189,36 @@ class ResultTab extends StatelessWidget {
       listenable: fleet,
       builder: (context, _) {
         final vehicles = fleet.vehicles.toList();
-        final buses =
-            vehicles.where((v) => v.type == VehicleType.bus).toList();
+        final buses = vehicles.where((v) => v.type == VehicleType.bus).toList();
         final leader = leaderOf(buses);
         final offCount = vehicles.where((v) => v.isOffRoute).length;
+
+        // 💡 MapView가 요구하는 레코드 타입 `({double lat, double lon})` 리스트로 올바르게 변환
+        final routeCoords = kCourseRoute.points
+            .map((p) => (lat: p.latitude, lon: p.longitude))
+            .toList();
+
+        final trailsList = <({List<LatLng> trail, Color color, double width})>[];
+        if (leader != null && leader.trail.isNotEmpty) {
+          trailsList.add((
+            trail: leader.trail.map((tp) => LatLng(tp.lat, tp.lon)).toList(),
+            color: Colors.orangeAccent,
+            width: 5.0,
+          ));
+        }
 
         return Column(children: [
           AppHeader(
             title: '실시간 통합 관제',
-            subtitle: '${vehicles.length}대 접속 · '
-                '버스 ${buses.length}대 · 이탈 $offCount대',
+            subtitle: '${vehicles.length}대 접속 · 버스 ${buses.length}대 · 이탈 $offCount대',
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: HeadwayPanel(buses: buses, leader: leader),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: const MapLegend(),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: MapLegend(),
           ),
           Expanded(
             flex: 5,
@@ -246,32 +228,12 @@ class ResultTab extends StatelessWidget {
                 borderRadius: BorderRadius.circular(24),
                 child: Container(
                   color: Colors.white,
-                  child: MapView(layers: [
-                    const VectorBaseLayer(),
-                    RouteLayer(
-                      points: kCourseRoute.points,
-                      color: AppColors.teal.withValues(alpha: 0.35),
-                    ),
-                    if (leader != null && leader.trail.isNotEmpty)
-                      TrailLayer(trails: [
-                        (
-                          trail: leader.trail,
-                          color: Colors.orangeAccent,
-                          width: 5,
-                        ),
-                      ]),
-                    for (final b in buses)
-                      if (b.id != leader?.id && b.trail.isNotEmpty)
-                        TrailLayer(trails: [
-                          (
-                            trail: b.trail,
-                            color: Colors.orangeAccent.withValues(alpha: 0.45),
-                            width: 2,
-                          ),
-                        ]),
-                    PickupLayer(points: PickupStore.instance.points),
-                    VehicleLayer(vehicles: vehicles),
-                  ]),
+                  child: MapView(
+                    routePoints: routeCoords,
+                    pickupPoints: PickupStore.instance.points,
+                    vehicles: vehicles,
+                    showScaleBar: true,
+                  ),
                 ),
               ),
             ),
@@ -303,18 +265,13 @@ class ResultTab extends StatelessWidget {
   }
 }
 
-/// 이탈 차량 우선, 그다음 버스 우선, 마지막으로 ID 순.
 List<VehicleState> _sortedForList(List<VehicleState> vehicles) {
-  final list = [...vehicles]..sort((a, b) {
+  return [...vehicles]..sort((a, b) {
       final oa = a.isOffRoute ? 0 : 1;
       final ob = b.isOffRoute ? 0 : 1;
       if (oa != ob) return oa.compareTo(ob);
-      final ta = a.type == VehicleType.bus ? 0 : 1;
-      final tb = b.type == VehicleType.bus ? 0 : 1;
-      if (ta != tb) return ta.compareTo(tb);
       return a.id.compareTo(b.id);
     });
-  return list;
 }
 
 class _LoginGate extends StatelessWidget {
@@ -381,9 +338,6 @@ class _LoginGate extends StatelessWidget {
       ]);
 }
 
-// =============================================================================
-// 5. 차량 카드
-// =============================================================================
 class VehicleCard extends StatelessWidget {
   const VehicleCard({super.key, required this.state});
 
@@ -419,9 +373,7 @@ class VehicleCard extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                '${state.location} · ${state.speedKmh.toStringAsFixed(1)} km/h'
-                ' · 평균 ${state.avgSpeedKmh.toStringAsFixed(1)} km/h'
-                ' · ${state.laps}랩',
+                '${state.location} · ${state.speedKmh.toStringAsFixed(1)} km/h · ${state.laps}랩',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
             ],

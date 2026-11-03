@@ -1,19 +1,16 @@
 import 'dart:async';
 
-
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../core/config.dart';
-import '../map/map_layers.dart';
 import '../models/course.dart';
 import '../models/pickup.dart';
 import '../services/gps_service.dart';
 import '../services/pickup_store.dart';
 import '../widgets/common.dart';
-
-import '../services/calibration_service.dart';
-
 
 class PickupRegistrationScreen extends StatefulWidget {
   const PickupRegistrationScreen({super.key});
@@ -24,11 +21,13 @@ class PickupRegistrationScreen extends StatefulWidget {
 }
 
 class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
+  final MapController _mapController = MapController();
   StreamSubscription<Position>? _sub;
   Position? _current;
-  Offset? _projected;
+  LatLng? _projectedLatLng;
   double? _progress;
   double _projErrorM = 0;
+  
   final _nameC = TextEditingController();
   PickupKind _kind = PickupKind.both;
   int _baseFare = 3000;
@@ -50,13 +49,17 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
     }
     _sub = gpsStream().listen((p) {
       if (!mounted || p.accuracy > AppConfig.gpsAccuracyLimitM) return;
-      final mapPos = gpsToMap(p.latitude, p.longitude);
-      final proj = kCourseRoute.project(mapPos);
+      
+      final currentLatLng = LatLng(p.latitude, p.longitude);
+      // 💡 실제 위·경도 기반 코스 투영 산출
+      final proj = kCourseRoute.projectLatLng(currentLatLng);
+      final progressVal = proj.distanceMeters / kCourseRoute.totalMeters;
+
       setState(() {
         _current = p;
-        _projected = mapPos;
-        _progress = proj.progress;
-        _projErrorM = proj.distance;
+        _projectedLatLng = proj.closestPoint;
+        _progress = progressVal.clamp(0.0, 1.0);
+        _projErrorM = proj.offRouteDistanceMeters;
       });
     });
   }
@@ -98,17 +101,18 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
         return;
       }
       final id = 'P${DateTime.now().millisecondsSinceEpoch % 100000}';
+      final targetLatLng = _projectedLatLng ?? LatLng(avg.lat, avg.lon);
+
       await PickupStore.instance.add(PickupPoint(
         id: id,
         name: name,
         progress: progress,
-        mapPosition: kCourseRoute.pointAt(progress),
-        lat: avg.lat,
-        lon: avg.lon,
+        latLng: targetLatLng,
         baseFare: _baseFare,
         perKmFare: _perKmFare,
         kind: _kind,
       ));
+
       _toast('등록 완료 · progress=${progress.toStringAsFixed(3)}');
       _nameC.clear();
       if (mounted) Navigator.pop(context);
@@ -121,6 +125,9 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
   Widget build(BuildContext context) {
     final cur = _current;
     final progress = _progress;
+    final routeLatLngs = kCourseRoute.points;
+    final initialCenter = routeLatLngs.isNotEmpty ? routeLatLngs.first : const LatLng(37.2315, 126.7795);
+
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: AppBar(
@@ -131,22 +138,63 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // 💡 기존 정적 이미지 & CustomPaint 대신 오픈소스 flutter_map 적용
           AspectRatio(
             aspectRatio: AppConfig.mapAspectRatio,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Stack(children: [
-                Image.asset(AppConfig.mapAsset, fit: BoxFit.fill),
-                CustomPaint(
-                  size: Size.infinite,
-                  painter: _PickupPreviewPainter(
-                    route: kCourseRoute,
-                    current: _projected,
-                    projected:
-                        progress == null ? null : kCourseRoute.pointAt(progress),
-                  ),
+              child: FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: _projectedLatLng ?? initialCenter,
+                  initialZoom: 17.0,
                 ),
-              ]),
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.example.center_navigation',
+                  ),
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: routeLatLngs,
+                        color: AppColors.teal,
+                        strokeWidth: 4.0,
+                      ),
+                    ],
+                  ),
+                  MarkerLayer(
+                    markers: [
+                      if (_projectedLatLng != null)
+                        Marker(
+                          point: _projectedLatLng!,
+                          width: 32,
+                          height: 32,
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              color: AppColors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.flag, color: Colors.white, size: 16),
+                          ),
+                        ),
+                      if (cur != null)
+                        Marker(
+                          point: LatLng(cur.latitude, cur.longitude),
+                          width: 24,
+                          height: 24,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.blue,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -253,67 +301,4 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
       ),
     );
   }
-}
-
-class _PickupPreviewPainter extends CustomPainter {
-  _PickupPreviewPainter({required this.route, this.current, this.projected});
-
-  final RouteGeometry route;
-  final Offset? current, projected;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawPath(
-      routePath(route.points, size, closed: true),
-      Paint()
-        ..color = AppColors.teal
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke
-        ..strokeJoin = StrokeJoin.round,
-    );
-
-    final t = projected;
-    if (t != null) {
-      final p = Offset(t.dx * size.width, t.dy * size.height);
-      canvas.drawCircle(p, 9, Paint()..color = AppColors.red.withValues(alpha: 0.25));
-      canvas.drawCircle(p, 5, Paint()..color = AppColors.red);
-      canvas.drawCircle(
-        p,
-        5,
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5,
-      );
-    }
-
-    final c = current;
-    if (c != null) {
-      final cp = Offset(c.dx * size.width, c.dy * size.height);
-      canvas.drawCircle(cp, 6, Paint()..color = Colors.blue);
-      canvas.drawCircle(
-        cp,
-        6,
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-      if (t != null) {
-        final tp = Offset(t.dx * size.width, t.dy * size.height);
-        canvas.drawLine(
-          cp,
-          tp,
-          Paint()
-            ..color = Colors.blue
-            ..strokeWidth = 1.2
-            ..style = PaintingStyle.stroke,
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _PickupPreviewPainter old) =>
-      old.current != current || old.projected != projected;
 }

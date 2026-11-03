@@ -1,16 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../core/config.dart';
-import '../map/map_layers.dart';
 import '../models/course.dart';
 import '../services/calibration_service.dart';
 import '../services/gps_service.dart';
 import '../widgets/common.dart';
 
-/// 오차(px) 수준에 따른 색. 경로 탭과 현장 보정 화면이 함께 쓴다.
+/// 오차 수준에 따른 색상 헬퍼
 Color residualColor(double r) =>
     r > 15 ? AppColors.red : (r > 8 ? Colors.orange : Colors.green);
 
@@ -24,7 +25,8 @@ class CalibrationWaypoint {
   final double progress;
   final String label, hint;
 
-  Offset get mapPosition => kCourseRoute.pointAt(progress);
+  /// 💡 kCourseRoute.pointAt() 메서드는 실제 LatLng 객체를 직접 반환합니다.
+  LatLng get latLng => kCourseRoute.pointAt(progress);
 }
 
 final List<CalibrationWaypoint> kCalibrationWaypoints = [
@@ -63,6 +65,7 @@ class FieldCalibrationScreen extends StatefulWidget {
 }
 
 class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
+  final MapController _mapController = MapController();
   StreamSubscription<Position>? _sub;
   Position? _current;
   int _index = 0;
@@ -113,12 +116,17 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
         return;
       }
       final wp = kCalibrationWaypoints[_index];
-      final m = wp.mapPosition;
+      final pos = wp.latLng;
       
-      // 기존 점 리스트에 새로운 현장 보정 점 추가 후 저장
+      // 💡 새로운 현장 보정 점 추가 후 저장 (위경도 좌표 할당)
       final nextPoints = [
         ...CalibrationManager.instance.points,
-        CalibrationPoint(lat: avg.lat, lon: avg.lon, x: m.dx, y: m.dy),
+        CalibrationPoint(
+          lat: avg.lat, 
+          lon: avg.lon, 
+          x: pos.longitude, 
+          y: pos.latitude,
+        ),
       ];
       await CalibrationManager.instance.saveAndApply(nextPoints);
 
@@ -139,6 +147,42 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
     final rms = current.affineMap?.rmsPixels;
     final cur = _current;
     final curOk = cur != null && cur.accuracy <= AppConfig.gpsAccuracyLimitM;
+
+    // 💡 kCourseRoute.points는 이미 LatLng 리스트이므로 바로 사용합니다.
+    final routeLatLngs = kCourseRoute.points;
+
+    // 이미 수집된 캡처 지점 마커들
+    final capturedMarkers = _captured.map((i) {
+      final pt = kCalibrationWaypoints[i].latLng;
+      return Marker(
+        point: pt,
+        width: 24,
+        height: 24,
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.green,
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+        ),
+      );
+    }).toList();
+
+    // 현재 타겟 웨이포인트 마커
+    final targetMarker = Marker(
+      point: wp.latLng,
+      width: 32,
+      height: 32,
+      child: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: AppColors.red,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4)],
+        ),
+        child: const Icon(Icons.flag, color: Colors.white, size: 16),
+      ),
+    );
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -194,20 +238,32 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
                   aspectRatio: AppConfig.mapAspectRatio,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Stack(children: [
-                      Image.asset(AppConfig.mapAsset, fit: BoxFit.fill),
-                      CustomPaint(
-                        size: Size.infinite,
-                        painter: _CoursePreviewPainter(
-                          route: kCourseRoute,
-                          target: wp.mapPosition,
-                          captured: [
-                            for (final i in _captured)
-                              kCalibrationWaypoints[i].mapPosition,
-                          ],
-                        ),
+                    child: FlutterMap(
+                      mapController: _mapController,
+                      options: MapOptions(
+                        initialCenter: wp.latLng,
+                        initialZoom: 17.0,
                       ),
-                    ]),
+                      children: [
+                        TileLayer(
+                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.example.center_navigation',
+                        ),
+                        if (routeLatLngs.isNotEmpty)
+                          PolylineLayer(
+                            polylines: [
+                              Polyline(
+                                points: routeLatLngs,
+                                color: AppColors.teal,
+                                strokeWidth: 4.0,
+                              ),
+                            ],
+                          ),
+                        MarkerLayer(
+                          markers: [...capturedMarkers, targetMarker],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -350,61 +406,4 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
       ),
     );
   }
-}
-
-class _CoursePreviewPainter extends CustomPainter {
-  _CoursePreviewPainter({
-    required this.route,
-    required this.target,
-    required this.captured,
-  });
-
-  final RouteGeometry route;
-  final Offset target;
-  final List<Offset> captured;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawPath(
-      routePath(route.points, size, closed: true),
-      Paint()
-        ..color = AppColors.teal
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke
-        ..strokeJoin = StrokeJoin.round,
-    );
-
-    for (final c in captured) {
-      final p = Offset(c.dx * size.width, c.dy * size.height);
-      canvas.drawCircle(p, 6, Paint()..color = Colors.green);
-      canvas.drawCircle(
-        p,
-        6,
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5,
-      );
-    }
-
-    final t = Offset(target.dx * size.width, target.dy * size.height);
-    canvas.drawCircle(
-      t,
-      14,
-      Paint()..color = AppColors.red.withValues(alpha: 0.25),
-    );
-    canvas.drawCircle(t, 7, Paint()..color = AppColors.red);
-    canvas.drawCircle(
-      t,
-      7,
-      Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _CoursePreviewPainter old) =>
-      old.target != target || old.captured.length != captured.length;
 }

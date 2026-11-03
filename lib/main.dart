@@ -7,7 +7,6 @@ import 'screens/home_tab.dart';
 import 'screens/measure_tab.dart';
 import 'screens/result_tab.dart';
 import 'screens/route_tab.dart';
-import 'services/calibration_service.dart';
 import 'services/fleet_repository.dart';
 import 'services/pickup_store.dart';
 import 'services/voice_announcer.dart';
@@ -15,7 +14,6 @@ import 'services/voice_announcer.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Firebase 초기화에 실패해도 앱은 오프라인 모드로 계속 실행한다.
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -25,7 +23,6 @@ Future<void> main() async {
     debugPrint('Firebase 초기화 실패, 오프라인 모드로 실행: $e');
   }
 
-  await CalibrationManager.instance.load();
   await PickupStore.instance.load();
   await NavAnnouncer.instance.init();
 

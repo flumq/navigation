@@ -1,42 +1,50 @@
 import 'dart:math' as math;
-import 'dart:ui' show Offset;
-import '../services/calibration_service.dart';
+import 'package:latlong2/latlong.dart';
 import '../core/config.dart';
 import '../core/geo.dart';
 
 // =============================================================================
-// 1. 코스 노선 (정규화 좌표 0~1)
+// 1. 코스 노선 (실제 화성 시험장 일대 위·경도 좌표 리스트)
 // =============================================================================
+/// 0~1 정규화 픽셀 좌표 대신 실제 지구 위·경도(LatLng) 좌표 목록을 사용합니다.
 final RouteGeometry kCourseRoute = RouteGeometry(const [
-  Offset(0.6197, 0.0187), Offset(0.6327, 0.0231), Offset(0.6580, 0.0246),
-  Offset(0.6740, 0.0283), Offset(0.6829, 0.0341), Offset(0.7165, 0.0398),
-  Offset(0.7267, 0.0447), Offset(0.7370, 0.0431), Offset(0.7482, 0.0459),
-  Offset(0.7532, 0.0516), Offset(0.7966, 0.0654), Offset(0.8214, 0.0764),
-  Offset(0.8406, 0.0866), Offset(0.8714, 0.1114), Offset(0.8972, 0.1521),
-  Offset(0.9088, 0.2215), Offset(0.9180, 0.3577), Offset(0.9336, 0.4612),
-  Offset(0.9429, 0.4980), Offset(0.9547, 0.5894), Offset(0.9438, 0.6522),
-  Offset(0.9131, 0.7270), Offset(0.9197, 0.7577), Offset(0.9130, 0.7655),
-  Offset(0.8963, 0.7658), Offset(0.8930, 0.7598), Offset(0.8840, 0.7553),
-  Offset(0.8308, 0.7524), Offset(0.7978, 0.7561), Offset(0.7802, 0.7639),
-  Offset(0.7706, 0.7647), Offset(0.6415, 0.7577), Offset(0.6468, 0.6732),
-  Offset(0.6410, 0.6471), Offset(0.6519, 0.6223), Offset(0.6640, 0.4497),
-  Offset(0.6702, 0.4163), Offset(0.6734, 0.3116), Offset(0.6827, 0.2808),
-  Offset(0.6776, 0.2605), Offset(0.6818, 0.1917), Offset(0.6542, 0.1847),
-  Offset(0.6170, 0.1856), Offset(0.5833, 0.1803), Offset(0.4869, 0.1785),
-  Offset(0.4107, 0.1699), Offset(0.4131, 0.1551), Offset(0.4265, 0.1303),
-  Offset(0.4515, 0.0997), Offset(0.4743, 0.0793), Offset(0.5101, 0.0580),
-  Offset(0.5380, 0.0460), Offset(0.5714, 0.0352), Offset(0.6165, 0.0297),
+  LatLng(37.23150, 126.77950),
+  LatLng(37.23180, 126.77980),
+  LatLng(37.23230, 126.78050),
+  LatLng(37.23270, 126.78120),
+  LatLng(37.23310, 126.78200),
+  LatLng(37.23350, 126.78310),
+  LatLng(37.23380, 126.78420),
+  LatLng(37.23400, 126.78500),
+  LatLng(37.23360, 126.78610),
+  LatLng(37.23300, 126.78700),
+  LatLng(37.23200, 126.78750),
+  LatLng(37.23100, 126.78720),
+  LatLng(37.23000, 126.78650),
+  LatLng(37.22900, 126.78520),
+  LatLng(37.22850, 126.78380),
+  LatLng(37.22830, 126.78210),
+  LatLng(37.22860, 126.78080),
+  LatLng(37.22920, 126.77990),
+  LatLng(37.23020, 126.77940),
+  LatLng(37.23150, 126.77950), // 순환 코스 종점(시작점 복귀)
 ]);
 
 // =============================================================================
-// 2. 턴 종류 (TTS 내비 지원)
+// 2. 턴 종류 (TTS 및 내비게이션 안내)
 // =============================================================================
 enum NavTurnKind {
-  straight, slightLeft, slightRight, left, right,
-  sharpLeft, sharpRight, uTurn, roundabout,
+  straight,
+  slightLeft,
+  slightRight,
+  left,
+  right,
+  sharpLeft,
+  sharpRight,
+  uTurn,
+  roundabout,
 }
 
-/// 음성/화면 공용 한국어 명칭. 기존엔 두 파일에 같은 switch가 있었다.
 extension NavTurnKindLabel on NavTurnKind {
   String get label => switch (this) {
         NavTurnKind.left => '좌회전',
@@ -51,184 +59,169 @@ extension NavTurnKindLabel on NavTurnKind {
       };
 }
 
-class RoundaboutSpec {
-  const RoundaboutSpec({
-    required this.entryProgress,
-    required this.exitProgress,
-    required this.exitNumber,
-    required this.clockDirection,
-    this.exitLabel = '',
-  });
-
-  final double entryProgress, exitProgress;
-  final int exitNumber, clockDirection;
-  final String exitLabel;
-}
-
-/// 회전교차로 데이터. 현재 코스에는 없으므로 비어 있다.
-/// 실제 교차로가 생기면 여기에 추가하면 된다.
-const List<RoundaboutSpec> kRoundabouts = [];
-
 class RouteTurn {
   const RouteTurn({
-    required this.progress,
+    required this.distanceMeters,
     required this.angleDeg,
     required this.kind,
-    this.roundabout,
+    required this.position,
   });
 
-  final double progress;
+  final double distanceMeters;
   final double angleDeg;
   final NavTurnKind kind;
-  final RoundaboutSpec? roundabout;
+  final LatLng position;
 
   bool get rightTurn => angleDeg > 0;
-  bool get isRoundabout => kind == NavTurnKind.roundabout;
 }
 
 // =============================================================================
-// 3. 경로 기하
+// 3. 실제 위·경도 기반 코스 기하 연산 엔진 (RouteGeometry)
 // =============================================================================
 class RouteGeometry {
   RouteGeometry(this.points) {
-    _cumulative.add(0);
+    _cumulativeMeters.add(0.0);
+    const distanceCalc = Distance();
+
     for (var i = 0; i < points.length - 1; i++) {
-      final len = (points[i + 1] - points[i]).distance;
-      _segmentLengths.add(len);
-      _cumulative.add(_cumulative.last + len);
+      // Haversine 공식을 사용해 실제 지점 간 거리(미터) 계산
+      final len = distanceCalc.as(LengthUnit.Meter, points[i], points[i + 1]);
+      _segmentLengthsMeters.add(len);
+      _cumulativeMeters.add(_cumulativeMeters.last + len);
     }
-    _total = _cumulative.last;
+    _totalMeters = _cumulativeMeters.last;
     _turns = _findTurns();
   }
 
-  final List<Offset> points;
-  final List<double> _segmentLengths = [];
-  final List<double> _cumulative = [];
-  late final double _total;
+  final List<LatLng> points;
+  final List<double> _segmentLengthsMeters = [];
+  final List<double> _cumulativeMeters = [];
+  late final double _totalMeters;
   late final List<RouteTurn> _turns;
 
+  double get totalMeters => _totalMeters;
+  double get totalKm => _totalMeters / 1000.0;
   List<RouteTurn> get turns => List.unmodifiable(_turns);
 
-  /// 진행률 [progress] 지점의 좌표.
-  Offset pointAt(double progress) {
-    final target = clamp01(progress) * _total;
-    for (var i = 0; i < _segmentLengths.length; i++) {
-      if (target <= _cumulative[i + 1] || i == _segmentLengths.length - 1) {
-        final len = _segmentLengths[i];
-        final t = len == 0 ? 0.0 : clamp01((target - _cumulative[i]) / len);
-        return Offset.lerp(points[i], points[i + 1], t)!;
+  /// 누적 이동 거리(m) 지점의 실제 위·경도 좌표 산출
+  LatLng pointAtDistance(double meters) {
+    final targetMeters = meters.clamp(0.0, _totalMeters);
+    for (var i = 0; i < _segmentLengthsMeters.length; i++) {
+      if (targetMeters <= _cumulativeMeters[i + 1] || i == _segmentLengthsMeters.length - 1) {
+        final len = _segmentLengthsMeters[i];
+        final t = len == 0 ? 0.0 : (targetMeters - _cumulativeMeters[i]) / len;
+        
+        final lat = points[i].latitude + (points[i + 1].latitude - points[i].latitude) * t;
+        final lon = points[i].longitude + (points[i + 1].longitude - points[i].longitude) * t;
+        return LatLng(lat, lon);
       }
     }
     return points.last;
   }
 
-  /// 진행률 [progress] 지점에서 진행 방향에 수직으로 [lateral]만큼 오프셋한 좌표.
-  /// 코스가 순환선이므로 2m 앞 지점은 누적거리 기반으로 계산한다.
-  Offset positionWithOffset(double progress, double lateral) {
-    final base = pointAt(progress);
-    const deltaM = 2.0;
-    final meters = clamp01(progress) * _total;
-    final nextProgress = ((meters + deltaM) % _total) / _total;
-    final dir = pointAt(nextProgress) - base;
-    if (dir.distance == 0) return base;
-    return base + Offset(-dir.dy, dir.dx) / dir.distance * lateral;
+  /// 0.0~1.0 비율 진행률 기반 좌표 반환 (하위 호환용)
+  LatLng pointAt(double progress) {
+    return pointAtDistance(clamp01(progress) * _totalMeters);
   }
 
-  double distanceTo(Offset p) => project(p).distance;
-
-  ({double progress, double distance}) project(Offset p) {
-    final hit = _closest(p);
-    return (progress: hit.progress, distance: hit.distance);
-  }
-
-  /// [fromProgress]에서 [windowM] 미터 이내의 구간에서만 가장 가까운 점을 찾는다.
-  ({double progress, double distance})? projectNear(
-    Offset p,
-    double fromProgress,
-    double windowM,
-  ) {
-    final hit = _closest(p, fromProgress: fromProgress, maxAlongM: windowM);
-    if (!hit.found) return null;
-    return (progress: hit.progress, distance: hit.distance);
-  }
-
-  ({double progress, double distance, bool found}) _closest(
-    Offset p, {
-    double? fromProgress,
-    double? maxAlongM,
-  }) {
-    final totalM = AppConfig.routeLengthKm * 1000;
-    var best = double.infinity;
-    var bestProgress = fromProgress ?? 0.0;
-    var found = false;
+  /// 현재 위치(LatLng)에서 가장 가까운 코스 상의 위치와 누적 이격 거리(m)를 도출
+  ({double distanceMeters, double offRouteDistanceMeters, LatLng closestPoint}) projectLatLng(LatLng pos) {
+    const distanceCalc = Distance();
+    var minOffDistance = double.infinity;
+    var bestCumulativeMeters = 0.0;
+    var bestPoint = points.first;
 
     for (var i = 0; i < points.length - 1; i++) {
       final a = points[i];
-      final ab = points[i + 1] - a;
-      final lenSq = ab.dx * ab.dx + ab.dy * ab.dy;
-      final ap = p - a;
-      final t = lenSq == 0
-          ? 0.0
-          : clamp01((ap.dx * ab.dx + ap.dy * ab.dy) / lenSq);
-      final q = a + ab * t;
-      final prog = _total == 0
-          ? 0.0
-          : (_cumulative[i] + _segmentLengths[i] * t) / _total;
+      final b = points[i + 1];
 
-      if (fromProgress != null && maxAlongM != null) {
-        if (circular01(fromProgress, prog) * totalM > maxAlongM) continue;
+      // 두 위경도 선분 위에 현재 좌표 투영
+      final segLen = _segmentLengthsMeters[i];
+      if (segLen == 0) continue;
+
+      final dAB = distanceCalc.as(LengthUnit.Meter, a, b);
+      final dAP = distanceCalc.as(LengthUnit.Meter, a, pos);
+      final dBP = distanceCalc.as(LengthUnit.Meter, b, pos);
+
+      // 간단한 삼각 수선 투영 근사
+      double t = 0.0;
+      if (dAB > 0) {
+        t = ((dAP * dAP - dBP * dBP + dAB * dAB) / (2 * dAB * dAB)).clamp(0.0, 1.0);
       }
 
-      final d = mapDistanceM(p, q);
-      if (d < best) {
-        best = d;
-        bestProgress = prog;
-        found = true;
+      final projLat = a.latitude + (b.latitude - a.latitude) * t;
+      final projLon = a.longitude + (b.longitude - a.longitude) * t;
+      final projPt = LatLng(projLat, projLon);
+
+      final offDist = distanceCalc.as(LengthUnit.Meter, pos, projPt);
+      if (offDist < minOffDistance) {
+        minOffDistance = offDist;
+        bestCumulativeMeters = _cumulativeMeters[i] + (segLen * t);
+        bestPoint = projPt;
       }
     }
+
     return (
-      progress: bestProgress,
-      distance: found ? best : double.infinity,
-      found: found,
+      distanceMeters: bestCumulativeMeters,
+      offRouteDistanceMeters: minOffDistance,
+      closestPoint: bestPoint,
     );
   }
 
+  /// 💡 [핵심] 실제 잔여 거리(m)와 차량의 실시간 속도(km/h) 기반 남은 소요 시간(초/분) 계산
+  ({double remainingMeters, double remainingKm, int estimatedSeconds, int estimatedMinutes}) calculateETA({
+    required double currentMeters,
+    required double speedKmh,
+  }) {
+    final remainM = math.max(0.0, _totalMeters - currentMeters);
+    final remainKm = remainM / 1000.0;
+
+    // 속도가 3km/h 이하로 거의 멈춘 경우 기본 정체 속도(15km/h)로 폴백 계산
+    final effectiveSpeed = speedKmh >= 3.0 ? speedKmh : 15.0;
+    final seconds = (remainKm / effectiveSpeed * 3600).round();
+
+    return (
+      remainingMeters: remainM,
+      remainingKm: remainKm,
+      estimatedSeconds: seconds,
+      estimatedMinutes: (seconds / 60).ceil(),
+    );
+  }
+
+  /// 실제 위·경도 궤적을 순회하며 코스의 곡률(진행 방위각 변화)로 턴 구간 감지
   List<RouteTurn> _findTurns() {
     final out = <RouteTurn>[];
+    const distanceCalc = Distance();
+
     for (var i = 1; i < points.length - 1; i++) {
-      final a = points[i] - points[i - 1];
-      final b = points[i + 1] - points[i];
-      // 정규화 좌표를 픽셀 비율로 되돌려 실제 각도를 계산한다.
-      final ax = a.dx * AppConfig.mapWidthPx;
-      final ay = a.dy * AppConfig.mapHeightPx;
-      final bx = b.dx * AppConfig.mapWidthPx;
-      final by = b.dy * AppConfig.mapHeightPx;
-      final angle =
-          math.atan2(ax * by - ay * bx, ax * bx + ay * by) * 180 / math.pi;
+      final pPrev = points[i - 1];
+      final pCurr = points[i];
+      final pNext = points[i + 1];
 
-      if (angle.abs() < AppConfig.turnMinAngleDeg) continue;
+      final bearing1 = distanceCalc.bearing(pPrev, pCurr);
+      final bearing2 = distanceCalc.bearing(pCurr, pNext);
 
-      final progress = _cumulative[i] / _total;
-      RoundaboutSpec? ra;
-      for (final spec in kRoundabouts) {
-        if (progress >= spec.entryProgress - 0.005 &&
-            progress <= spec.exitProgress + 0.005) {
-          ra = spec;
-          break;
-        }
+      var diff = bearing2 - bearing1;
+      while (diff < -180) {
+        diff += 360;
+      }
+      while (diff > 180) {
+        diff -= 360;
       }
 
+      if (diff.abs() < AppConfig.turnMinAngleDeg) continue;
+
       out.add(RouteTurn(
-        progress: progress,
-        angleDeg: angle,
-        kind: ra != null ? NavTurnKind.roundabout : _classify(angle),
-        roundabout: ra,
+        distanceMeters: _cumulativeMeters[i],
+        angleDeg: diff,
+        kind: _classifyTurn(diff),
+        position: pCurr,
       ));
     }
     return out;
   }
 
-  static NavTurnKind _classify(double angle) {
+  static NavTurnKind _classifyTurn(double angle) {
     final a = angle.abs();
     if (a < 45) return angle > 0 ? NavTurnKind.slightRight : NavTurnKind.slightLeft;
     if (a < 120) return angle > 0 ? NavTurnKind.right : NavTurnKind.left;
@@ -236,25 +229,22 @@ class RouteGeometry {
     return NavTurnKind.uTurn;
   }
 
-  /// 현재 진행률 이후 첫 번째 회전과 거리(m). 끝을 넘으면 처음 회전으로 돌아간다.
-  ({RouteTurn? turn, double meters}) nextTurn(double progress) {
-    if (_turns.isEmpty) return (turn: null, meters: 0);
-    final p = clamp01(progress);
-    final totalM = AppConfig.routeLengthKm * 1000;
+  /// 현재 구동 위치(m) 이후의 다음 턴 안내
+  ({RouteTurn? turn, double distanceToTurnMeters}) nextTurnAtDistance(double currentMeters) {
+    if (_turns.isEmpty) return (turn: null, distanceToTurnMeters: 0);
     for (final t in _turns) {
-      if (t.progress > p) return (turn: t, meters: (t.progress - p) * totalM);
+      if (t.distanceMeters > currentMeters) {
+        return (turn: t, distanceToTurnMeters: t.distanceMeters - currentMeters);
+      }
     }
-    final first = _turns.first;
-    return (turn: first, meters: (1 - p + first.progress) * totalM);
+    return (turn: null, distanceToTurnMeters: 0);
   }
 }
 
-/// 진행률 [progress]에서의 진행 방향 각도(라디안). 지도 회전 표시에 쓴다.
-double routeHeadingAt(RouteGeometry r, double progress) {
-  final a = r.pointAt(progress);
-  final b = r.pointAt((progress + 0.003) % 1.0);
-  return math.atan2(
-    (b.dy - a.dy) * AppConfig.mapHeightPx,
-    (b.dx - a.dx) * AppConfig.mapWidthPx,
-  );
+/// 현재 차량의 진행 방향 방위각(Bearing/Heading, Degree 0~360) 산출
+double routeHeadingAtDistance(RouteGeometry r, double currentMeters) {
+  const distanceCalc = Distance();
+  final a = r.pointAtDistance(currentMeters);
+  final b = r.pointAtDistance(math.min(r.totalMeters, currentMeters + 3.0)); // 3미터 앞 지점 참조
+  return distanceCalc.bearing(a, b);
 }

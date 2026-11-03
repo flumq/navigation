@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../core/config.dart';
@@ -12,8 +13,6 @@ import '../services/calibration_service.dart';
 import '../services/gps_import.dart';
 import '../services/gps_service.dart';
 import '../widgets/common.dart';
-
-import 'package:geolocator/geolocator.dart';
 
 class MeasureTab extends StatefulWidget {
   const MeasureTab({super.key});
@@ -138,7 +137,6 @@ class _MeasureTabState extends State<MeasureTab> {
     }
   }
 
-  // 💡 [추가됨] 기록된 궤적을 JSON 파일로 내보내는 기능
   Future<void> _exportJson() async {
     final tracks = GpsTrackStore.instance.tracks;
     if (tracks.every((t) => t.samples.isEmpty)) {

@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
-
 import 'package:flutter/services.dart';
+
 import '../core/config.dart';
+import '../models/pickup.dart';
 import '../services/pickup_store.dart';
 import '../widgets/common.dart';
 
-import '../map/map_layers.dart';
+/// 승하차 지점 종류에 따른 아이콘 반환 헬퍼
+IconData pickupIcon(PickupKind kind) => switch (kind) {
+      PickupKind.pickup => Icons.flight_takeoff,
+      PickupKind.dropoff => Icons.flight_land,
+      PickupKind.both => Icons.place,
+    };
 
 class PickupManagerSheet extends StatelessWidget {
   const PickupManagerSheet({super.key});

@@ -15,6 +15,8 @@ dependencies:
   firebase_core: ^5.1.0
   firebase_database: ^13.0.1
   flutter_tts: ^4.0.2
+  flutter_map: ^8.3.2 # 오픈소스 지도 렌더링 패키지
+  latlong2: ^0.10.1    # 위·경도 좌표 관리 패키지
 flutter:
   uses-material-design: true
   assets:

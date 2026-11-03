@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:ui' show Offset;
 import '../models/pickup.dart';
 
 /// 코드에 고정된 기본 승차/하차 지점. 현장에서 등록한 지점은 기기에 저장된다.
@@ -11,9 +11,7 @@ const List<PickupPoint> kPickupPoints = [
     id: 'P72849',
     name: '아파트단지',
     progress: 0.4480,
-    mapPosition: const Offset(0.8205, 0.7536),
-    lat: 37.22962104,
-    lon: 126.78055364,
+    latLng: LatLng(37.22962104, 126.78055364),
     baseFare: 3800,
     perKmFare: 1000,
     kind: PickupKind.pickup,
@@ -22,9 +20,7 @@ const List<PickupPoint> kPickupPoints = [
     id: 'P36836',
     name: '버스베이형 정류장앞',
     progress: 0.3074,
-    mapPosition: const Offset(0.9489, 0.5443),
-    lat: 37.23096624,
-    lon: 126.78123188,
+    latLng: LatLng(37.23096624, 126.78123188),
     baseFare: 3000,
     perKmFare: 1000,
     kind: PickupKind.both,
@@ -33,9 +29,7 @@ const List<PickupPoint> kPickupPoints = [
     id: 'P87828',
     name: '버스정류소',
     progress: 0.1029,
-    mapPosition: const Offset(0.8447, 0.0899),
-    lat: 37.23341624,
-    lon: 126.78064516,
+    latLng: LatLng(37.23341624, 126.78064516),
     baseFare: 3000,
     perKmFare: 1000,
     kind: PickupKind.both,
@@ -103,7 +97,6 @@ class PickupStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// `kPickupPoints`에 붙여넣을 수 있는 Dart 코드를 만든다.
   String exportAsDartCode() {
     if (_points.isEmpty) return '// 등록된 승차 지점이 없습니다.';
     final buf = StringBuffer()
