@@ -10,7 +10,7 @@ const List<PickupPoint> kPickupPoints = [
   PickupPoint(
     id: 'P72849',
     name: '아파트단지',
-    progress: 0.4480,
+    progress: 0.3976,
     latLng: LatLng(37.22962104, 126.78055364),
     baseFare: 3800,
     perKmFare: 1000,
@@ -19,7 +19,7 @@ const List<PickupPoint> kPickupPoints = [
   PickupPoint(
     id: 'P36836',
     name: '버스베이형 정류장앞',
-    progress: 0.3074,
+    progress: 0.5618,
     latLng: LatLng(37.23096624, 126.78123188),
     baseFare: 3000,
     perKmFare: 1000,
@@ -28,7 +28,7 @@ const List<PickupPoint> kPickupPoints = [
   PickupPoint(
     id: 'P87828',
     name: '버스정류소',
-    progress: 0.1029,
+    progress: 0.7800,
     latLng: LatLng(37.23341624, 126.78064516),
     baseFare: 3000,
     perKmFare: 1000,
