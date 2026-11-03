@@ -7,56 +7,10 @@ import 'package:latlong2/latlong.dart';
 
 import '../core/config.dart';
 import '../models/course.dart';
-import '../services/calibration_service.dart';
 import '../services/gps_service.dart';
-import '../widgets/common.dart';
 
-/// 오차 수준에 따른 색상 헬퍼
-Color residualColor(double r) =>
-    r > 15 ? AppColors.red : (r > 8 ? Colors.orange : Colors.green);
-
-class CalibrationWaypoint {
-  const CalibrationWaypoint({
-    required this.progress,
-    required this.label,
-    required this.hint,
-  });
-
-  final double progress;
-  final String label, hint;
-
-  /// 💡 kCourseRoute.pointAt() 메서드는 실제 LatLng 객체를 직접 반환합니다.
-  LatLng get latLng => kCourseRoute.pointAt(progress);
-}
-
-final List<CalibrationWaypoint> kCalibrationWaypoints = [
-  const CalibrationWaypoint(
-    progress: 0.00,
-    label: '출발점',
-    hint: '코스 시작 지점 · 지도 상단 중앙',
-  ),
-  const CalibrationWaypoint(
-    progress: 0.10,
-    label: '동쪽 진입',
-    hint: '지도 우측 상단 · 파란 지붕 옆',
-  ),
-  const CalibrationWaypoint(
-    progress: 0.45,
-    label: '동쪽 중간',
-    hint: '지도 우측 중간 · 큰 나무 아래',
-  ),
-  const CalibrationWaypoint(
-    progress: 0.65,
-    label: '남쪽 코너',
-    hint: '지도 우측 하단 · 주차장 입구',
-  ),
-  const CalibrationWaypoint(
-    progress: 0.90,
-    label: '서쪽 코너',
-    hint: '지도 좌측 상단 · 정문 방향',
-  ),
-];
-
+/// OSM 실제 지도 위에서 GPS 원본 위치와 기준 코스의 정합 상태를 확인한다.
+/// 이미지 지도 좌표 보정값을 새로 저장하지 않는다.
 class FieldCalibrationScreen extends StatefulWidget {
   const FieldCalibrationScreen({super.key});
 
@@ -68,9 +22,7 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _sub;
   Position? _current;
-  int _index = 0;
-  final Set<int> _captured = {};
-  bool _busy = false;
+  String? _gpsError;
 
   @override
   void initState() {
@@ -79,15 +31,24 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
   }
 
   Future<void> _startGps() async {
-    final err = await ensureGpsReady();
+    final error = await ensureGpsReady();
     if (!mounted) return;
-    if (err != null) {
-      _toast(err);
+    if (error != null) {
+      setState(() => _gpsError = error);
       return;
     }
-    _sub = gpsStream().listen((p) {
-      if (mounted) setState(() => _current = p);
-    });
+    _sub = gpsStream(distanceFilter: 1).listen(
+      (position) {
+        if (!mounted) return;
+        setState(() {
+          _current = position;
+          _gpsError = null;
+        });
+      },
+      onError: (Object error) {
+        if (mounted) setState(() => _gpsError = 'GPS 수신 오류: $error');
+      },
+    );
   }
 
   @override
@@ -96,312 +57,148 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
     super.dispose();
   }
 
-  void _toast(String m) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
-    }
-  }
-
-  Future<void> _capture() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      final avg = await averageFix();
-      if (avg == null) {
-        _toast('GPS 취득 실패');
-        return;
-      }
-      if (avg.acc > AppConfig.gpsAccuracyLimitM) {
-        _toast('정확도 ${avg.acc.toStringAsFixed(1)}m · 재시도');
-        return;
-      }
-      final wp = kCalibrationWaypoints[_index];
-      final pos = wp.latLng;
-      
-      // 💡 새로운 현장 보정 점 추가 후 저장 (위경도 좌표 할당)
-      final nextPoints = [
-        ...CalibrationManager.instance.points,
-        CalibrationPoint(
-          lat: avg.lat, 
-          lon: avg.lon, 
-          x: pos.longitude, 
-          y: pos.latitude,
-        ),
-      ];
-      await CalibrationManager.instance.saveAndApply(nextPoints);
-
-      setState(() {
-        _captured.add(_index);
-        if (_index < kCalibrationWaypoints.length - 1) _index++;
-      });
-      _toast('${wp.label} 등록 · 정확도 ${avg.acc.toStringAsFixed(1)}m');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final wp = kCalibrationWaypoints[_index];
-    final current = CalibrationManager.instance;
-    final rms = current.affineMap?.rmsPixels;
-    final cur = _current;
-    final curOk = cur != null && cur.accuracy <= AppConfig.gpsAccuracyLimitM;
-
-    // 💡 kCourseRoute.points는 이미 LatLng 리스트이므로 바로 사용합니다.
-    final routeLatLngs = kCourseRoute.points;
-
-    // 이미 수집된 캡처 지점 마커들
-    final capturedMarkers = _captured.map((i) {
-      final pt = kCalibrationWaypoints[i].latLng;
-      return Marker(
-        point: pt,
-        width: 24,
-        height: 24,
-        child: Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.green,
-            border: Border.all(color: Colors.white, width: 2),
-          ),
-        ),
-      );
-    }).toList();
-
-    // 현재 타겟 웨이포인트 마커
-    final targetMarker = Marker(
-      point: wp.latLng,
-      width: 32,
-      height: 32,
-      child: Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppColors.red,
-          border: Border.all(color: Colors.white, width: 2),
-          boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4)],
-        ),
-        child: const Icon(Icons.flag, color: Colors.white, size: 16),
-      ),
-    );
+    final current = _current;
+    final currentPoint = current == null
+        ? null
+        : LatLng(current.latitude, current.longitude);
+    final projection = currentPoint == null
+        ? null
+        : kCourseRoute.projectLatLng(currentPoint);
+    final accuracyOk = current != null &&
+        current.accuracy <= AppConfig.gpsAccuracyLimitM;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: AppBar(
-        title: const Text('현장 보정 모드'),
+        title: const Text('GPS 현장 정합 확인'),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: Column(
         children: [
-          AppCard(
+          Expanded(
+            child: FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: currentPoint ?? kCourseRoute.points.first,
+                initialZoom: 17.5,
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate:
+                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.center_navigation',
+                ),
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: kCourseRoute.points,
+                      color: AppColors.teal,
+                      strokeWidth: 5,
+                    ),
+                    if (currentPoint != null && projection != null)
+                      Polyline(
+                        points: [currentPoint, projection.closestPoint],
+                        color: AppColors.red,
+                        strokeWidth: 2,
+                        isDotted: true,
+                      ),
+                  ],
+                ),
+                MarkerLayer(
+                  markers: [
+                    if (currentPoint != null)
+                      Marker(
+                        point: currentPoint,
+                        width: 34,
+                        height: 34,
+                        child: const Icon(
+                          Icons.my_location,
+                          color: Colors.blue,
+                          size: 30,
+                        ),
+                      ),
+                    if (projection != null)
+                      Marker(
+                        point: projection.closestPoint,
+                        width: 22,
+                        height: 22,
+                        child: const Icon(
+                          Icons.place,
+                          color: Colors.red,
+                          size: 22,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.accent,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${_index + 1} / ${kCalibrationWaypoints.length}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      wp.label,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ]),
-                const SizedBox(height: 8),
                 Text(
-                  wp.hint,
-                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                  _gpsError ?? (current == null ? 'GPS 신호 대기 중…' : 'GPS 수신 중'),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
-                const SizedBox(height: 12),
-                AspectRatio(
-                  aspectRatio: AppConfig.mapAspectRatio,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: FlutterMap(
-                      mapController: _mapController,
-                      options: MapOptions(
-                        initialCenter: wp.latLng,
-                        initialZoom: 17.0,
-                      ),
-                      children: [
-                        TileLayer(
-                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                          userAgentPackageName: 'com.example.center_navigation',
-                        ),
-                        if (routeLatLngs.isNotEmpty)
-                          PolylineLayer(
-                            polylines: [
-                              Polyline(
-                                points: routeLatLngs,
-                                color: AppColors.teal,
-                                strokeWidth: 4.0,
-                              ),
-                            ],
-                          ),
-                        MarkerLayer(
-                          markers: [...capturedMarkers, targetMarker],
-                        ),
-                      ],
+                const SizedBox(height: 8),
+                if (current != null) ...[
+                  Text(
+                    '위도: ${current.latitude.toStringAsFixed(7)}  '
+                    '경도: ${current.longitude.toStringAsFixed(7)}',
+                  ),
+                  Text(
+                    'GPS 정확도: ${current.accuracy.toStringAsFixed(1)}m · '
+                    '속도: ${(current.speed * 3.6).clamp(0, 300).toStringAsFixed(1)}km/h',
+                  ),
+                  Text(
+                    '코스 이격 거리: ${projection!.offRouteDistanceMeters.toStringAsFixed(1)}m',
+                    style: TextStyle(
+                      color: !accuracyOk
+                          ? Colors.orange
+                          : projection.offRouteDistanceMeters >
+                                  AppConfig.gpsOffRouteThresholdM
+                              ? AppColors.red
+                              : Colors.green,
+                      fontWeight: FontWeight.bold,
                     ),
+                  ),
+                ],
+                const SizedBox(height: 6),
+                Text(
+                  '코스 길이: ${kCourseRoute.totalKm.toStringAsFixed(3)}km · '
+                  '기준점 ${kCourseRoute.points.length}개',
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '이 화면은 OSM 지도와 실제 GPS 위치의 차이를 확인합니다. '
+                  '기존 이미지 좌표 보정값은 변경하거나 저장하지 않습니다.',
+                  style: TextStyle(color: Colors.black54, fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: currentPoint == null
+                        ? null
+                        : () => _mapController.move(currentPoint, 18),
+                    icon: const Icon(Icons.my_location),
+                    label: const Text('현재 GPS 위치로 이동'),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          AppCard(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(children: [
-              Icon(
-                cur == null
-                    ? Icons.gps_not_fixed
-                    : (curOk ? Icons.gps_fixed : Icons.gps_off),
-                color: cur == null
-                    ? Colors.grey
-                    : (curOk ? Colors.green : Colors.orange),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  cur == null
-                      ? 'GPS 신호 대기 중…'
-                      : '정확도 ${cur.accuracy.toStringAsFixed(1)} m · '
-                          '${cur.speed.toStringAsFixed(1)} m/s',
-                  style: const TextStyle(fontSize: 13),
-                ),
-              ),
-            ]),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 68,
-            child: ElevatedButton.icon(
-              onPressed: _busy ? null : _capture,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.teal,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              icon: Icon(
-                _busy ? Icons.hourglass_top : Icons.pin_drop,
-                size: 28,
-              ),
-              label: Text(
-                _busy ? 'GPS 평균 취득 중…' : '여기에 도착! (${wp.label} 등록)',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '최대 10초 안에 GPS를 5회 샘플링해 평균값으로 등록합니다.\n'
-            '정확도 10m 이하일 때 누르는 것이 좋습니다.',
-            style: TextStyle(fontSize: 11, color: Colors.black45),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          if (current.points.isNotEmpty) ...[
-            const SectionTitle('수집된 기준점'),
-            for (var i = 0; i < current.points.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: AppCard(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  child: Builder(builder: (_) {
-                    final r = current.residualPxFor(current.points[i]);
-                    final meters = r == null ? null : r * kMetersPerMapPx;
-                    return Row(children: [
-                      CircleAvatar(
-                        radius: 14,
-                        backgroundColor: AppColors.primary,
-                        child: Text(
-                          '${i + 1}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '위도 ${current.points[i].lat.toStringAsFixed(6)}, '
-                              '경도 ${current.points[i].lon.toStringAsFixed(6)}',
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                            if (r != null)
-                              Text(
-                                '오차 ${r.toStringAsFixed(1)}px ≈ ${meters!.toStringAsFixed(1)}m',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: residualColor(r),
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ]);
-                  }),
-                ),
-              ),
-          ],
-          if (rms != null) ...[
-            const SizedBox(height: 8),
-            AppCard(
-              padding: const EdgeInsets.all(14),
-              child: Row(children: [
-                Icon(
-                  rms < 8 ? Icons.check_circle : Icons.info,
-                  color: rms < 8 ? Colors.green : Colors.orange,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    rms < 8
-                        ? '보정 완료 · RMS ${rms.toStringAsFixed(1)}px '
-                            '(약 ${(rms * kMetersPerMapPx).toStringAsFixed(1)}m)'
-                        : 'RMS ${rms.toStringAsFixed(1)}px · 기준점을 더 넓게 배치하세요',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
-              ]),
-            ),
-          ],
-          const SizedBox(height: 24),
         ],
       ),
     );
