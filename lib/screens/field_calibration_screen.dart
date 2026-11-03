@@ -103,7 +103,6 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
                         points: [currentPoint, projection.closestPoint],
                         color: AppColors.red,
                         strokeWidth: 2,
-                        isDotted: true,
                       ),
                   ],
                 ),
