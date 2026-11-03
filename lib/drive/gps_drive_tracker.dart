@@ -8,7 +8,7 @@ import '../models/course.dart';
 import '../models/vehicle.dart';
 import 'telemetry.dart';
 
-/// 실제 GPS fix를 받아 코스 위의 진행률, 이탈, 주행 기록을 실제 위·경도(LatLng) 기반으로 계산한다.
+/// 실제 GPS fix를 코스 위 진행률·이탈·주행 기록으로 변환한다.
 class GpsDriveTracker {
   GpsDriveTracker(
     this.route, {
@@ -24,11 +24,10 @@ class GpsDriveTracker {
   DateTime? _lastFixTime;
   DateTime? _lastFixWall;
   DateTime? _offWindowSince;
-  double _lastDt = 1.0;
 
   double? progress;
-  double currentDistanceMeters = 0; // 누적 미터 거리
-  double deviationMeters = 0;       // 코스 이격 거리 (m)
+  double currentDistanceMeters = 0;
+  double deviationMeters = 0;
   double speedKmh = 0;
   double accuracyM = 0;
 
@@ -44,44 +43,50 @@ class GpsDriveTracker {
       DateTime.now().difference(_lastFixWall!).inSeconds > 5;
 
   void onFix(Position p) {
-    if (p.accuracy > AppConfig.gpsAccuracyLimitM) return;
-
-    final rawLatLng = LatLng(p.latitude, p.longitude);
-    final prev = _currentLatLng;
-    
-    // GPS 위치 부드러운 보간 (간이 스무딩)
-    final LatLng pos;
-    if (prev == null) {
-      pos = rawLatLng;
-    } else {
-      final lat = prev.latitude + (rawLatLng.latitude - prev.latitude) * AppConfig.gpsSmoothing;
-      final lon = prev.longitude + (rawLatLng.longitude - prev.longitude) * AppConfig.gpsSmoothing;
-      pos = LatLng(lat, lon);
+    if (!p.latitude.isFinite ||
+        !p.longitude.isFinite ||
+        p.accuracy.isNaN ||
+        p.accuracy > AppConfig.gpsAccuracyLimitM) {
+      return;
     }
 
     var dt = 1.0;
     if (_lastFixTime != null) {
-      dt = (p.timestamp.difference(_lastFixTime!).inMilliseconds / 1000)
-          .clamp(0.1, 5.0)
-          .toDouble();
+      final elapsed =
+          p.timestamp.difference(_lastFixTime!).inMilliseconds / 1000.0;
+      if (elapsed <= 0) return;
+      dt = elapsed.clamp(0.1, 5.0).toDouble();
     }
-    _lastDt = dt;
     _lastFixTime = p.timestamp;
     _lastFixWall = DateTime.now();
-    _currentLatLng = pos;
     accuracyM = p.accuracy;
     speedKmh = (p.speed.isFinite && p.speed > 0 ? p.speed : 0) * 3.6;
 
-    _updateProgress(pos, p.accuracy, _lastDt);
+    final raw = LatLng(p.latitude, p.longitude);
+    final prev = _currentLatLng;
+    final alpha = (AppConfig.gpsSmoothing -
+            (p.accuracy > 10 ? 0.15 : 0.0))
+        .clamp(0.55, 0.95)
+        .toDouble();
+    final pos = prev == null
+        ? raw
+        : LatLng(
+            prev.latitude + (raw.latitude - prev.latitude) * alpha,
+            prev.longitude + (raw.longitude - prev.longitude) * alpha,
+          );
+    _currentLatLng = pos;
+
+    _updateProgress(pos, p.accuracy, dt);
 
     telemetry.offRoute.update(
       distanceM: deviationMeters,
       thresholdM: AppConfig.gpsOffRouteThresholdM,
-      dtSec: _lastDt,
+      dtSec: dt,
     );
 
     final currentProg = progress;
     if (currentProg != null) {
+      // 실제 GPS 좌표를 기록한다. 화면 마커용 스무딩 좌표와 분리한다.
       telemetry.record(
         progress: currentProg,
         speedKmh: speedKmh,
@@ -91,44 +96,51 @@ class GpsDriveTracker {
     }
   }
 
-  /// 위·경도 코스 엔진(`projectLatLng`)을 활용하여 현재 진행률과 이격 거리를 정밀 산출
   void _updateProgress(LatLng pos, double accuracy, double dt) {
-    final global = route.projectLatLng(pos);
     final currentProg = progress;
-
     if (currentProg == null) {
-      currentDistanceMeters = global.distanceMeters;
+      final first = route.projectLatLng(pos);
+      currentDistanceMeters = first.distanceMeters;
       progress = currentDistanceMeters / route.totalMeters;
-      deviationMeters = global.offRouteDistanceMeters;
-      _offWindowSince = null;
+      deviationMeters = first.offRouteDistanceMeters;
       return;
     }
 
-    // 허용 윈도우 범위 계산 (미터 단위)
-    final windowM = math.max(
-      15.0,
-      (speedKmh / 3.6) * dt * 2.5 + accuracy + 8,
+    final currentMeters = currentProg * route.totalMeters;
+    final expectedTravel = (speedKmh / 3.6) * dt;
+    final searchWindow = math.max(
+      45.0,
+      expectedTravel * 5 + accuracy * 3 + 25,
     );
 
-    // 전역 투영 위치가 현재 진행 위치와 가까운지 검증
-    final globalMeters = global.distanceMeters;
-    final currentMeters = currentProg * route.totalMeters;
-    final diffM = (globalMeters - currentMeters).abs();
+    final projected = route.projectLatLng(
+      pos,
+      hintDistanceMeters: currentMeters,
+      searchWindowMeters: searchWindow,
+    );
 
-    if (diffM <= windowM || diffM >= route.totalMeters - windowM) {
-      currentDistanceMeters = globalMeters;
-      progress = (currentDistanceMeters / route.totalMeters).clamp(0.0, 1.0);
-      deviationMeters = global.offRouteDistanceMeters;
+    final candidate = projected.distanceMeters;
+    final forwardDelta = (candidate - currentMeters) % route.totalMeters;
+    final plausibleForward = forwardDelta <= searchWindow;
+    final nearStartWrap = currentMeters > route.totalMeters * 0.85 &&
+        candidate < route.totalMeters * 0.15;
+
+    deviationMeters = projected.offRouteDistanceMeters;
+
+    if (plausibleForward || nearStartWrap) {
+      currentDistanceMeters = candidate;
+      progress = (candidate / route.totalMeters).clamp(0.0, 1.0);
       _offWindowSince = null;
       return;
     }
 
-    deviationMeters = global.offRouteDistanceMeters;
+    // 현재 진행 구간 근처에서 찾은 위치가 지나치게 멀면 GPS 이탈로 취급한다.
+    // 일정 시간 이상 같은 방향으로 이탈한 경우에만 새 위치로 재동기화한다.
     _offWindowSince ??= DateTime.now();
     final lost = DateTime.now().difference(_offWindowSince!).inSeconds;
     if (lost >= 4 && deviationMeters <= AppConfig.gpsOffRouteThresholdM + 8) {
-      currentDistanceMeters = globalMeters;
-      progress = (currentDistanceMeters / route.totalMeters).clamp(0.0, 1.0);
+      currentDistanceMeters = candidate;
+      progress = (candidate / route.totalMeters).clamp(0.0, 1.0);
       _offWindowSince = null;
     }
   }
@@ -138,16 +150,16 @@ class GpsDriveTracker {
         id: id,
         type: type,
         progress: progress ?? 0,
-        speedKmh: speedKmh, // 💡 괄호나 함수 호출 형식이 아닌 속성값 그대로 전달
+        speedKmh: speedKmh,
         avgSpeedKmh: telemetry.avgSpeedKmh,
         laps: telemetry.laps,
         trail: telemetry.trail,
-        position: _currentLatLng ?? const LatLng(37.2315, 126.7795),
+        position: _currentLatLng ?? route.points.first,
         deviation: deviationMeters,
         isOffRoute: isOffRoute,
         location: location,
         status: isOffRoute ? '경로 이탈!' : '정상 주행',
       );
-          
+
   double get speedKsmhSafe => speedKmh;
 }
