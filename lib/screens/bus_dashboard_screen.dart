@@ -63,8 +63,8 @@ class _BusDashboardScreenState extends State<BusDashboardScreen> {
       (p) {
         _gps.onFix(p);
         if (mounted) {
-          setState(() =>
-              _gpsStatus = 'GPS 정확도 ${p.accuracy.toStringAsFixed(0)} m');
+          setState(
+              () => _gpsStatus = 'GPS 정확도 ${p.accuracy.toStringAsFixed(0)} m');
         }
       },
       onError: (Object e) {
@@ -237,7 +237,8 @@ class _BusDashboardScreenState extends State<BusDashboardScreen> {
                       ),
                       Icon(
                         _simMode ? Icons.gps_off : Icons.gps_fixed,
-                        color: _simMode ? Colors.orangeAccent : Colors.greenAccent,
+                        color:
+                            _simMode ? Colors.orangeAccent : Colors.greenAccent,
                         size: 16,
                       ),
                     ],

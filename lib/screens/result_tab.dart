@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:latlong2/latlong.dart';
 
 import '../core/config.dart';
-import '../core/geo.dart';
 import '../map/map_layers.dart';
-import '../models/course.dart';
 import '../models/vehicle.dart';
 import '../services/fleet_repository.dart';
 import '../services/pickup_store.dart';
@@ -30,42 +27,44 @@ class HeadwayPanel extends StatelessWidget {
     final ldr = leader;
     if (ldr == null || buses.length < 2) {
       return AppCard(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(children: [
-          const Icon(Icons.route, size: 18, color: AppColors.bus),
+          const Icon(Icons.route, size: 16, color: AppColors.bus),
           const SizedBox(width: 8),
           const Expanded(
             child: Text(
               '배차 간격: 버스가 2대 이상 접속하면 자동 계산됩니다.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(fontSize: 11, color: Colors.grey),
             ),
           ),
         ]),
       );
     }
 
-    double gapOf(VehicleState f) =>
-        forwardProgress(f.progress, ldr.progress) * AppConfig.routeLengthKm;
-
+    double gapOf(VehicleState f) {
+  final d = (ldr.progress - f.progress) % 1.0;
+  final forward = d < 0 ? d + 1.0 : d;
+  return forward * AppConfig.routeLengthKm;
+}
     final followers = buses.where((b) => b.id != ldr.id).toList()
       ..sort((a, b) => gapOf(a).compareTo(gapOf(b)));
 
     return AppCard(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.route, size: 18, color: AppColors.bus),
+            const Icon(Icons.route, size: 16, color: AppColors.bus),
             const SizedBox(width: 6),
             Expanded(
               child: Text(
-                '참조 차량: ${ldr.id} (${ldr.laps}랩 완주 · 평균 ${ldr.avgSpeedKmh.toStringAsFixed(1)}km/h)',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                '기준 차량: ${ldr.id} (${ldr.laps}랩 완주)',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
               ),
             ),
           ]),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           for (final f in followers)
             Builder(builder: (_) {
               final gapKm = gapOf(f);
@@ -81,36 +80,24 @@ class HeadwayPanel extends StatelessWidget {
               final color = mins < 3
                   ? AppColors.red
                   : (mins < 5 ? Colors.orange : Colors.green);
-              final icon = mins < 3
-                  ? Icons.warning_amber_rounded
-                  : (mins < 5 ? Icons.info_outline : Icons.check_circle);
 
               return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
+                padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Row(children: [
-                  Icon(icon, size: 16, color: color),
-                  const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      f.id,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      '후속 ${f.id}',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                   ),
-                  Text('${gapKm.toStringAsFixed(2)} km', style: const TextStyle(fontSize: 12)),
+                  Text('${gapKm.toStringAsFixed(2)} km', style: const TextStyle(fontSize: 11)),
                   const SizedBox(width: 10),
-                  SizedBox(
-                    width: 74,
-                    child: Text(
-                      '$mins분 ${remSec}초',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
+                  Text(
+                    '$mins분 $remSec초 간격',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: color,
                     ),
                   ),
                 ]),
@@ -127,20 +114,13 @@ class MapLegend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AppCard(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: const [
-            Text(
-              '차량 상태 범례',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-            SizedBox(height: 8),
-            _LegendItem(color: AppColors.taxi, label: '택시 · 정상'),
-            _LegendItem(color: AppColors.bus, label: '버스 · 정상'),
-            _LegendItem(color: AppColors.red, label: '경로 이탈'),
-            _LegendItem(color: AppColors.teal, label: '코스 노선'),
-            _LegendItem(color: Colors.orangeAccent, label: '1번 버스 참조 궤적'),
+            _LegendItem(color: AppColors.taxi, label: '택시'),
+            _LegendItem(color: AppColors.bus, label: '버스'),
+            _LegendItem(color: AppColors.red, label: '이탈'),
           ],
         ),
       );
@@ -153,21 +133,18 @@ class _LegendItem extends StatelessWidget {
   final String label;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(children: [
-          Container(
-            width: 14,
-            height: 14,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(3),
-            ),
+  Widget build(BuildContext context) => Row(children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
           ),
-          const SizedBox(width: 8),
-          Text(label, style: const TextStyle(fontSize: 12)),
-        ]),
-      );
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(fontSize: 11)),
+      ]);
 }
 
 class ResultTab extends StatelessWidget {
@@ -193,19 +170,8 @@ class ResultTab extends StatelessWidget {
         final leader = leaderOf(buses);
         final offCount = vehicles.where((v) => v.isOffRoute).length;
 
-        // 💡 MapView가 요구하는 레코드 타입 `({double lat, double lon})` 리스트로 올바르게 변환
-        final routeCoords = kCourseRoute.points
-            .map((p) => (lat: p.latitude, lon: p.longitude))
-            .toList();
-
-        final trailsList = <({List<LatLng> trail, Color color, double width})>[];
-        if (leader != null && leader.trail.isNotEmpty) {
-          trailsList.add((
-            trail: leader.trail.map((tp) => LatLng(tp.lat, tp.lon)).toList(),
-            color: Colors.orangeAccent,
-            width: 5.0,
-          ));
-        }
+        // 초록색 코스 노선 선 제거
+        final List<({double lat, double lon})> routeCoords = [];
 
         return Column(children: [
           AppHeader(
@@ -213,19 +179,20 @@ class ResultTab extends StatelessWidget {
             subtitle: '${vehicles.length}대 접속 · 버스 ${buses.length}대 · 이탈 $offCount대',
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: HeadwayPanel(buses: buses, leader: leader),
           ),
           const Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+            padding: EdgeInsets.fromLTRB(16, 6, 16, 0),
             child: MapLegend(),
           ),
+          // 지도 영역 크기를 더욱 크게 확대 (flex: 10)
           Expanded(
-            flex: 5,
+            flex: 10,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(10),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(20),
                 child: Container(
                   color: Colors.white,
                   child: MapView(
@@ -238,24 +205,25 @@ class ResultTab extends StatelessWidget {
               ),
             ),
           ),
+          // 하단 차량 목록 영역
           Expanded(
-            flex: 4,
+            flex: 2,
             child: vehicles.isEmpty
                 ? const Center(
                     child: Text(
                       '현재 접속 중인 차량이 없습니다.',
-                      style: TextStyle(color: Colors.grey),
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
                     ),
                   )
                 : ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     children: [
                       for (final v in _sortedForList(vehicles))
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.only(bottom: 8),
                           child: VehicleCard(state: v),
                         ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
                     ],
                   ),
           ),
@@ -350,31 +318,32 @@ class VehicleCard extends StatelessWidget {
         ? AppColors.red
         : (isTaxi ? AppColors.taxi : AppColors.bus);
     return AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(children: [
         CircleAvatar(
-          radius: 18,
+          radius: 16,
           backgroundColor: color.withValues(alpha: 0.15),
           child: Icon(
             state.isOffRoute
                 ? Icons.warning_rounded
                 : (isTaxi ? Icons.local_taxi : Icons.directions_bus),
             color: color,
+            size: 18,
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 '${state.id} (${state.type.name.toUpperCase()})',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
               ),
               const SizedBox(height: 2),
               Text(
                 '${state.location} · ${state.speedKmh.toStringAsFixed(1)} km/h · ${state.laps}랩',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
               ),
             ],
           ),
@@ -384,7 +353,7 @@ class VehicleCard extends StatelessWidget {
           style: TextStyle(
             color: color,
             fontWeight: FontWeight.bold,
-            fontSize: 12,
+            fontSize: 11,
           ),
         ),
       ]),

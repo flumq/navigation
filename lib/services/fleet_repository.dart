@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 
 import '../core/config.dart';
 import '../models/vehicle.dart';
-import 'calibration_service.dart';
 
 String fleetKey(String id) => id.replaceAll(RegExp(r'[.#$\[\]/]'), '_');
 

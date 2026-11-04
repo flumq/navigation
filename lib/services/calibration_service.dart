@@ -267,7 +267,7 @@ class CalibrationManager extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_storageKey);
-      
+
       List<CalibrationPoint> list = [];
       if (raw == null) {
         list = kDefaultCalibrationPoints;
@@ -280,11 +280,13 @@ class CalibrationManager extends ChangeNotifier {
             offsetX = (decoded['offsetX'] as num?)?.toDouble() ?? 0.0;
             offsetY = (decoded['offsetY'] as num?)?.toDouble() ?? 0.0;
             list = (decoded['points'] as List)
-                .map((e) => CalibrationPoint.fromJson(Map<String, dynamic>.from(e)))
+                .map((e) =>
+                    CalibrationPoint.fromJson(Map<String, dynamic>.from(e)))
                 .toList();
           } else if (decoded is List) {
             list = decoded
-                .map((e) => CalibrationPoint.fromJson(Map<String, dynamic>.from(e)))
+                .map((e) =>
+                    CalibrationPoint.fromJson(Map<String, dynamic>.from(e)))
                 .toList();
           }
         } catch (_) {
@@ -304,7 +306,7 @@ class CalibrationManager extends ChangeNotifier {
   Future<void> saveAndApply(List<CalibrationPoint> next) async {
     final map = next.length >= 3 ? AffineMap(next) : null;
     final prefs = await SharedPreferences.getInstance();
-    
+
     final data = {
       'scaleX': scaleX,
       'scaleY': scaleY,
@@ -320,7 +322,8 @@ class CalibrationManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateScaleAndOffset(double sx, double sy, double ox, double oy) async {
+  Future<void> updateScaleAndOffset(
+      double sx, double sy, double ox, double oy) async {
     scaleX = sx;
     scaleY = sy;
     offsetX = ox;

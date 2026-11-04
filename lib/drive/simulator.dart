@@ -26,7 +26,7 @@ class VehicleSimulator {
   double progress;
   double speedKmh = 0;
   double lateral = 0; // 측면 오프셋 (미터 단위)
-  
+
   /// 💡 기존 Offset 대신 실제 지도 위·경도(LatLng) 좌표 사용
   LatLng position = const LatLng(37.2315, 126.7795);
   double deviation = 0;
@@ -35,8 +35,9 @@ class VehicleSimulator {
   void accelerate(double delta) => speedKmh =
       (speedKmh + delta).clamp(0.0, AppConfig.maxSpeedKmh).toDouble();
 
-  void steer(double delta) => lateral =
-      (lateral + delta).clamp(-AppConfig.maxSteer, AppConfig.maxSteer).toDouble();
+  void steer(double delta) => lateral = (lateral + delta)
+      .clamp(-AppConfig.maxSteer, AppConfig.maxSteer)
+      .toDouble();
 
   void step(double dt) {
     // 코스 전체 길이(m) 기준 진행률 업데이트
@@ -49,10 +50,10 @@ class VehicleSimulator {
 
     // 💡 실제 코스 상의 위·경도 위치 산출
     position = route.pointAt(progress);
-    
+
     // 코스 이격 거리 측정 (시뮬레이터이므로 기본 0 또는 lateral 반영)
     deviation = lateral.abs();
-    
+
     isOffRoute = telemetry.offRoute.update(
       distanceM: deviation,
       thresholdM: AppConfig.gpsOffRouteThresholdM,

@@ -20,7 +20,11 @@ class GpsDriveTracker {
   final VehicleType type;
   final DriveTelemetry telemetry;
 
+  // GPS 원본 좌표와 화면 표시용 스무딩 좌표, 코스 투영 좌표를 분리한다.
+  LatLng? _rawLatLng;
   LatLng? _currentLatLng;
+  LatLng? _projectedLatLng;
+
   DateTime? _lastFixTime;
   DateTime? _lastFixWall;
   DateTime? _offWindowSince;
@@ -28,11 +32,24 @@ class GpsDriveTracker {
   double? progress;
   double currentDistanceMeters = 0;
   double deviationMeters = 0;
+  double rawToRouteDistanceMeters = 0;
   double speedKmh = 0;
   double accuracyM = 0;
 
-  bool get hasFix => _currentLatLng != null;
+  /// 유효성 검사를 통과한 가장 최근의 GPS 원본 좌표.
+  LatLng? get rawPosition => _rawLatLng;
+
+  /// 기존 화면 호환성을 유지하는 GPS 스무딩 좌표.
+  /// 기존 position getter의 의미는 변경하지 않는다.
   LatLng? get position => _currentLatLng;
+
+  /// 진행률 계산에 사용된 코스 위 투영 좌표.
+  LatLng? get projectedPosition => _projectedLatLng;
+
+  /// GPS 원본 좌표와 투영 좌표 사이의 거리.
+  double get gpsToRouteDistanceMeters => rawToRouteDistanceMeters;
+
+  bool get hasFix => _currentLatLng != null;
   bool get isOffRoute => telemetry.offRoute.isOff;
   double get avgSpeedKmh => telemetry.avgSpeedKmh;
   int get laps => telemetry.laps;
@@ -45,7 +62,8 @@ class GpsDriveTracker {
   void onFix(Position p) {
     if (!p.latitude.isFinite ||
         !p.longitude.isFinite ||
-        p.accuracy.isNaN ||
+        !p.accuracy.isFinite ||
+        p.accuracy < 0 ||
         p.accuracy > AppConfig.gpsAccuracyLimitM) {
       return;
     }
@@ -57,26 +75,39 @@ class GpsDriveTracker {
       if (elapsed <= 0) return;
       dt = elapsed.clamp(0.1, 5.0).toDouble();
     }
+
     _lastFixTime = p.timestamp;
     _lastFixWall = DateTime.now();
     accuracyM = p.accuracy;
     speedKmh = (p.speed.isFinite && p.speed > 0 ? p.speed : 0) * 3.6;
 
+    // 원본 GPS 좌표는 변형하지 않고 별도로 보관한다.
     final raw = LatLng(p.latitude, p.longitude);
+    _rawLatLng = raw;
+
+    // 화면 마커와 진행률 계산에는 기존 스무딩 방식을 유지한다.
     final prev = _currentLatLng;
-    final alpha = (AppConfig.gpsSmoothing -
-            (p.accuracy > 10 ? 0.15 : 0.0))
+    final alpha = (AppConfig.gpsSmoothing - (p.accuracy > 10 ? 0.15 : 0.0))
         .clamp(0.55, 0.95)
         .toDouble();
-    final pos = prev == null
+
+    final smoothed = prev == null
         ? raw
         : LatLng(
             prev.latitude + (raw.latitude - prev.latitude) * alpha,
             prev.longitude + (raw.longitude - prev.longitude) * alpha,
           );
-    _currentLatLng = pos;
 
-    _updateProgress(pos, p.accuracy, dt);
+    _currentLatLng = smoothed;
+
+    _updateProgress(smoothed, p.accuracy, dt);
+
+    // 원본 GPS와 코스 투영점의 차이를 별도로 기록한다.
+    // 이 값은 지도 정합 상태를 확인하기 위한 진단값이다.
+    final projected = _projectedLatLng;
+    rawToRouteDistanceMeters = projected == null
+        ? 0
+        : const Distance().as(LengthUnit.Meter, raw, projected);
 
     telemetry.offRoute.update(
       distanceM: deviationMeters,
@@ -90,19 +121,21 @@ class GpsDriveTracker {
       telemetry.record(
         progress: currentProg,
         speedKmh: speedKmh,
-        lat: p.latitude,
-        lon: p.longitude,
+        lat: raw.latitude,
+        lon: raw.longitude,
       );
     }
   }
 
   void _updateProgress(LatLng pos, double accuracy, double dt) {
     final currentProg = progress;
+
     if (currentProg == null) {
       final first = route.projectLatLng(pos);
       currentDistanceMeters = first.distanceMeters;
       progress = currentDistanceMeters / route.totalMeters;
       deviationMeters = first.offRouteDistanceMeters;
+      _projectedLatLng = first.closestPoint;
       return;
     }
 
@@ -127,6 +160,7 @@ class GpsDriveTracker {
         candidate < route.totalMeters * 0.15;
 
     deviationMeters = projected.offRouteDistanceMeters;
+    _projectedLatLng = projected.closestPoint;
 
     if (plausibleForward || nearStartWrap) {
       currentDistanceMeters = candidate;
@@ -139,7 +173,9 @@ class GpsDriveTracker {
     // 일정 시간 이상 같은 방향으로 이탈한 경우에만 새 위치로 재동기화한다.
     _offWindowSince ??= DateTime.now();
     final lost = DateTime.now().difference(_offWindowSince!).inSeconds;
-    if (lost >= 4 && deviationMeters <= AppConfig.gpsOffRouteThresholdM + 8) {
+
+    if (lost >= 4 &&
+        deviationMeters <= AppConfig.gpsOffRouteThresholdM + 8) {
       currentDistanceMeters = candidate;
       progress = (candidate / route.totalMeters).clamp(0.0, 1.0);
       _offWindowSince = null;

@@ -100,6 +100,7 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
   bool _simMode = false;
   String _gpsStatus = 'GPS 연결 중…';
   String? _lastCallId;
+  bool _showGpsDebug = true;
 
   RideState _ride = const RideState();
 
@@ -149,8 +150,8 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
       (p) {
         _gps.onFix(p);
         if (mounted) {
-          setState(() =>
-              _gpsStatus = 'GPS 정확도 ${p.accuracy.toStringAsFixed(0)} m');
+          setState(
+              () => _gpsStatus = 'GPS 정확도 ${p.accuracy.toStringAsFixed(0)} m');
         }
       },
       onError: (Object e) {
@@ -177,15 +178,7 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
   bool get _offRoute => _simMode ? _sim.isOffRoute : _gps.isOffRoute;
 
   /// 💡 차량의 실제 위·경도 좌표 산출 (LatLng 직접 반환)
-  LatLng get _vehicleLatLng {
-    if (_simMode) {
-      return _sim.position;
-    }
-    if (_gps.position != null) {
-      return _gps.position!;
-    }
-    return kCourseRoute.pointAt(_progress);
-  }
+  LatLng get _vehicleLatLng {return kCourseRoute.points.first;}
 
   void _tick() {
     if (!mounted) return;
@@ -200,14 +193,15 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
     }
 
     // 💡 미터 단위 거리를 기반으로 TTS 턴 체크 호출
-    NavAnnouncer.instance.checkTurn(currentMeters: _currentMeters, route: kCourseRoute);
+    NavAnnouncer.instance
+        .checkTurn(currentMeters: _currentMeters, route: kCourseRoute);
     NavAnnouncer.instance.checkSpeed(_speed);
     NavAnnouncer.instance.checkOffRoute(_offRoute);
 
-    final latLng = _vehicleLatLng;
-    try {
-      _mapController.move(latLng, _mapController.camera.zoom);
-    } catch (_) {}
+    //final latLng = _vehicleLatLng;
+    //try {
+    //  _mapController.move(latLng, _mapController.camera.zoom);
+    //} catch (_) {}
 
     setState(() {});
   }
@@ -229,13 +223,13 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
     }
 
     schedule();
-    _rideTimer =
-        Timer.periodic(const Duration(seconds: 1), (_) => _tickRide());
+    _rideTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tickRide());
   }
 
   PickupPoint? _pickCallTarget() {
     final candidates = PickupStore.instance.pickupOnly.where((p) {
-      final km = forwardProgress(_progress, p.progress) * AppConfig.routeLengthKm;
+      final km =
+          forwardProgress(_progress, p.progress) * AppConfig.routeLengthKm;
       return km >= AppConfig.callMinKm &&
           km <= AppConfig.callMaxKm &&
           p.id != _lastCallId;
@@ -310,11 +304,11 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
         break;
 
       case RidePhase.arrived:
-        setState(() => _ride = _ride.copyWith(elapsedSec: _ride.elapsedSec + 1));
+        setState(
+            () => _ride = _ride.copyWith(elapsedSec: _ride.elapsedSec + 1));
         if (_ride.elapsedSec >= 3) {
           setState(() => _ride = _ride.copyWith(phase: RidePhase.boarding));
-          NavAnnouncer.instance
-              .say('승객이 탑승했습니다', priority: VoicePriority.high);
+          NavAnnouncer.instance.say('승객이 탑승했습니다', priority: VoicePriority.high);
           _startTripAfterBoarding();
         }
         break;
@@ -373,11 +367,10 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
       }
 
       final d = dropoffs[math.Random().nextInt(dropoffs.length)];
-      final tripKm =
-          forwardProgress(current.pickup.progress, d.progress) *
-              AppConfig.routeLengthKm;
-      final fare = current.pickup.baseFare +
-          (tripKm * current.pickup.perKmFare).round();
+      final tripKm = forwardProgress(current.pickup.progress, d.progress) *
+          AppConfig.routeLengthKm;
+      final fare =
+          current.pickup.baseFare + (tripKm * current.pickup.perKmFare).round();
       final newCall = PassengerCall(
         pickup: current.pickup,
         dropoff: d,
@@ -424,10 +417,9 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
     // 💡 미터 기반 nextTurnAtDistance 호출 및 안전한 방어 처리
     final next = kCourseRoute.nextTurnAtDistance(_currentMeters);
     final nextTurn = next.turn;
-    
-    final guideIcon = nextTurn == null
-        ? Icons.straight
-        : _iconFor(nextTurn.kind);
+
+    final guideIcon =
+        nextTurn == null ? Icons.straight : _iconFor(nextTurn.kind);
     final guideText = nextTurn == null ? '직진' : nextTurn.kind.label;
 
     final speed = _speed;
@@ -461,6 +453,42 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
     }).toList();
 
     final currentPos = _vehicleLatLng;
+    // GPS 진단용 좌표: 원본 GPS, 스무딩 GPS, 코스 투영점을 각각 구분한다.
+    final rawGpsPos = _simMode ? null : _gps.rawPosition;
+    final projectedGpsPos = _simMode ? null : _gps.projectedPosition;
+
+    final gpsDebugMarkers = <Marker>[];
+    if (_showGpsDebug && rawGpsPos != null) {
+      gpsDebugMarkers.add(Marker(
+        point: rawGpsPos,
+        width: 34,
+        height: 34,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.red.shade700,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+          child: const Icon(Icons.my_location, color: Colors.white, size: 18),
+        ),
+      ));
+    }
+    if (_showGpsDebug && projectedGpsPos != null) {
+      gpsDebugMarkers.add(Marker(
+        point: projectedGpsPos,
+        width: 34,
+        height: 34,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.green.shade700,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+          child: const Icon(Icons.alt_route, color: Colors.white, size: 18),
+        ),
+      ));
+    }
+
     final vehicleMarker = Marker(
       point: currentPos,
       width: 42,
@@ -506,19 +534,38 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
                       ),
                     ],
                   ),
+                if (_showGpsDebug &&
+                    rawGpsPos != null &&
+                    projectedGpsPos != null)
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: [rawGpsPos, projectedGpsPos],
+                        color: Colors.deepOrange,
+                        strokeWidth: 3,
+                      ),
+                    ],
+                  ),
                 MarkerLayer(
-                  markers: [...pickupMarkers, vehicleMarker],
+                  markers: [
+                    ...pickupMarkers,
+                    vehicleMarker,
+                    ...gpsDebugMarkers,
+                  ],
                 ),
               ],
             ),
           ),
+          _gpsDebugOverlay(topInset + 86),
           Positioned(
             top: topInset + 8,
             left: 12,
             right: 12,
             child: _topCard(
               icon: _offRoute ? Icons.warning_rounded : guideIcon,
-              title: _offRoute ? '경로 이탈' : '${next.distanceToTurnMeters.toStringAsFixed(0)}m',
+              title: _offRoute
+                  ? '경로 이탈'
+                  : '${next.distanceToTurnMeters.toStringAsFixed(0)}m',
               subtitle: _offRoute ? '차선 복귀가 필요합니다' : '$guideText · 다음 안내',
               off: _offRoute,
             ),
@@ -570,6 +617,105 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
       ),
     );
   }
+
+  Widget _gpsDebugOverlay(double top) {
+    final raw = _gps.rawPosition;
+    final smoothed = _gps.position;
+    final projected = _gps.projectedPosition;
+
+    if (!_showGpsDebug) {
+      return Positioned(
+        top: top,
+        right: 12,
+        child: Material(
+          color: Colors.black87,
+          borderRadius: BorderRadius.circular(10),
+          child: IconButton(
+            tooltip: 'GPS 좌표 진단 표시',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => setState(() => _showGpsDebug = true),
+            icon: const Icon(Icons.gps_fixed, color: Colors.white),
+          ),
+        ),
+      );
+    }
+
+    String coordinate(LatLng? point) => point == null
+        ? '수신 대기'
+        : '${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}';
+
+    return Positioned(
+      top: top,
+      right: 12,
+      width: 238,
+      child: Material(
+        color: const Color(0xDC000000),
+        borderRadius: BorderRadius.circular(12),
+        elevation: 5,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(children: [
+                const Expanded(
+                  child: Text(
+                    'GPS 좌표 진단',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '진단 표시 숨기기',
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+                  padding: EdgeInsets.zero,
+                  onPressed: () => setState(() => _showGpsDebug = false),
+                  icon: const Icon(Icons.close, color: Colors.white70, size: 17),
+                ),
+              ]),
+              _gpsDebugLine('빨강 원본 GPS', coordinate(raw), Colors.redAccent),
+              _gpsDebugLine('파랑 차량 마커', coordinate(smoothed), Colors.lightBlueAccent),
+              _gpsDebugLine('초록 코스 투영점', coordinate(projected), Colors.greenAccent),
+              const SizedBox(height: 4),
+              Text(
+                '원본 GPS ↔ 투영점: ${raw == null || projected == null ? '계산 대기' : '${_gps.gpsToRouteDistanceMeters.toStringAsFixed(1)} m'}',
+                style: const TextStyle(color: Colors.white, fontSize: 11),
+              ),
+              const Text(
+                '주황 선: 원본 GPS와 코스 투영점 연결',
+                style: TextStyle(color: Colors.white60, fontSize: 10),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _gpsDebugLine(String label, String value, Color color) => Padding(
+        padding: const EdgeInsets.only(top: 3),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 7,
+            height: 7,
+            margin: const EdgeInsets.only(top: 3, right: 5),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          Expanded(
+            child: Text(
+              '$label: $value',
+              style: const TextStyle(color: Colors.white, fontSize: 10),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ]),
+      );
 
   Widget _banner({
     required double top,
@@ -731,7 +877,8 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
                     ),
                     child: const Text(
                       '수락',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -787,7 +934,9 @@ class _TaxiNaviScreenState extends State<TaxiNaviScreen> {
           ),
           IconButton(
             icon: Icon(
-              NavAnnouncer.instance.enabled ? Icons.volume_up : Icons.volume_off,
+              NavAnnouncer.instance.enabled
+                  ? Icons.volume_up
+                  : Icons.volume_off,
               color: Colors.white,
             ),
             onPressed: () => setState(() => NavAnnouncer.instance

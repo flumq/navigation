@@ -3,7 +3,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../core/config.dart';
-import '../models/course.dart';
 import '../models/pickup.dart';
 import '../models/vehicle.dart';
 
@@ -31,7 +30,9 @@ class MapView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final latLngRoute = routePoints.map((p) => LatLng(p.lat, p.lon)).toList();
-    final initialCenter = latLngRoute.isNotEmpty ? latLngRoute.first : const LatLng(37.2315, 126.7795);
+    final initialCenter = latLngRoute.isNotEmpty
+        ? latLngRoute.first
+        : const LatLng(37.2315, 126.7795);
 
     return FlutterMap(
       options: MapOptions(
@@ -71,7 +72,9 @@ class MapView extends StatelessWidget {
                 height: 30,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: p.kind == PickupKind.pickup ? Colors.blue : Colors.orange,
+                    color: p.kind == PickupKind.pickup
+                        ? Colors.blue
+                        : Colors.orange,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
                   ),
@@ -85,12 +88,16 @@ class MapView extends StatelessWidget {
                 height: 36,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: v.type == VehicleType.taxi ? AppColors.taxi : AppColors.bus,
+                    color: v.type == VehicleType.taxi
+                        ? AppColors.taxi
+                        : AppColors.bus,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
                   ),
                   child: Icon(
-                    v.type == VehicleType.taxi ? Icons.local_taxi : Icons.directions_bus,
+                    v.type == VehicleType.taxi
+                        ? Icons.local_taxi
+                        : Icons.directions_bus,
                     size: 18,
                     color: Colors.white,
                   ),
@@ -106,7 +113,8 @@ class MapView extends StatelessWidget {
                     color: Colors.blueAccent,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.my_location, color: Colors.white, size: 16),
+                  child: const Icon(Icons.my_location,
+                      color: Colors.white, size: 16),
                 ),
               ),
           ],

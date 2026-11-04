@@ -58,7 +58,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '1036874403416',
     projectId: 'center-navigation',
     authDomain: 'center-navigation.firebaseapp.com',
-    databaseURL: 'https://center-navigation-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://center-navigation-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'center-navigation.firebasestorage.app',
     measurementId: 'G-RL9LJZK5NE',
   );

@@ -86,9 +86,10 @@ class NavAnnouncer {
   void onLap(int laps) => say('$laps바퀴를 완주했습니다');
 
   /// 💡 개편된 위·경도·미터 기반 RouteGeometry와 호환되도록 체크 로직 정돈
-  void checkTurn({required double currentMeters, required RouteGeometry route}) {
+  void checkTurn(
+      {required double currentMeters, required RouteGeometry route}) {
     if (!_enabled) return;
-    
+
     // 신규 미터 기반 nextTurnAtDistance 호출
     final next = route.nextTurnAtDistance(currentMeters);
     final t = next.turn;

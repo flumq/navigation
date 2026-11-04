@@ -144,10 +144,12 @@ class _MeasureTabState extends State<MeasureTab> {
       return;
     }
     try {
-      final data = tracks.map((t) => {
-            'name': t.name,
-            'samples': t.samples.map((s) => s.toJson()).toList(),
-          }).toList();
+      final data = tracks
+          .map((t) => {
+                'name': t.name,
+                'samples': t.samples.map((s) => s.toJson()).toList(),
+              })
+          .toList();
 
       final jsonStr = jsonEncode(data);
       final name = 'gps_tracks_${DateTime.now().millisecondsSinceEpoch}.json';

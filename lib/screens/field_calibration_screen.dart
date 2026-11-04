@@ -60,14 +60,12 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
   @override
   Widget build(BuildContext context) {
     final current = _current;
-    final currentPoint = current == null
-        ? null
-        : LatLng(current.latitude, current.longitude);
-    final projection = currentPoint == null
-        ? null
-        : kCourseRoute.projectLatLng(currentPoint);
-    final accuracyOk = current != null &&
-        current.accuracy <= AppConfig.gpsAccuracyLimitM;
+    final currentPoint =
+        current == null ? null : LatLng(current.latitude, current.longitude);
+    final projection =
+        currentPoint == null ? null : kCourseRoute.projectLatLng(currentPoint);
+    final accuracyOk =
+        current != null && current.accuracy <= AppConfig.gpsAccuracyLimitM;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -87,8 +85,7 @@ class _FieldCalibrationScreenState extends State<FieldCalibrationScreen> {
               ),
               children: [
                 TileLayer(
-                  urlTemplate:
-                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.example.center_navigation',
                 ),
                 PolylineLayer(

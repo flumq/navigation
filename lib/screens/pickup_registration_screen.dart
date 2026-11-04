@@ -27,7 +27,7 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
   LatLng? _projectedLatLng;
   double? _progress;
   double _projErrorM = 0;
-  
+
   final _nameC = TextEditingController();
   PickupKind _kind = PickupKind.both;
   int _baseFare = 3000;
@@ -49,7 +49,7 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
     }
     _sub = gpsStream().listen((p) {
       if (!mounted || p.accuracy > AppConfig.gpsAccuracyLimitM) return;
-      
+
       final currentLatLng = LatLng(p.latitude, p.longitude);
       // 💡 실제 위·경도 기반 코스 투영 산출
       final proj = kCourseRoute.projectLatLng(currentLatLng);
@@ -126,7 +126,9 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
     final cur = _current;
     final progress = _progress;
     final routeLatLngs = kCourseRoute.points;
-    final initialCenter = routeLatLngs.isNotEmpty ? routeLatLngs.first : const LatLng(37.2315, 126.7795);
+    final initialCenter = routeLatLngs.isNotEmpty
+        ? routeLatLngs.first
+        : const LatLng(37.2315, 126.7795);
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -151,7 +153,8 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.example.center_navigation',
                   ),
                   PolylineLayer(
@@ -175,7 +178,8 @@ class _PickupRegistrationScreenState extends State<PickupRegistrationScreen> {
                               color: AppColors.red,
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(Icons.flag, color: Colors.white, size: 16),
+                            child: const Icon(Icons.flag,
+                                color: Colors.white, size: 16),
                           ),
                         ),
                       if (cur != null)

@@ -131,7 +131,9 @@ class RouteGeometry {
         final len = _segmentLengthsMeters[i];
         final t = len == 0
             ? 0.0
-            : ((targetMeters - _cumulativeMeters[i]) / len).clamp(0.0, 1.0).toDouble();
+            : ((targetMeters - _cumulativeMeters[i]) / len)
+                .clamp(0.0, 1.0)
+                .toDouble();
         final a = points[i];
         final b = points[i + 1];
         return LatLng(
@@ -248,8 +250,12 @@ class RouteGeometry {
       final bearing1 = distanceCalc.bearing(points[i - 1], points[i]);
       final bearing2 = distanceCalc.bearing(points[i], points[i + 1]);
       var diff = bearing2 - bearing1;
-      while (diff < -180) { diff += 360; }
-      while (diff > 180) { diff -= 360; }
+      while (diff < -180) {
+        diff += 360;
+      }
+      while (diff > 180) {
+        diff -= 360;
+      }
       if (diff.abs() < AppConfig.turnMinAngleDeg) continue;
       out.add(RouteTurn(
         distanceMeters: _cumulativeMeters[i],
@@ -263,18 +269,20 @@ class RouteGeometry {
 
   static NavTurnKind _classifyTurn(double angle) {
     final a = angle.abs();
-    if (a < 45) return angle > 0 ? NavTurnKind.slightRight : NavTurnKind.slightLeft;
-    if (a < 120) return angle > 0 ? NavTurnKind.right : NavTurnKind.left;
-    if (a < 150) return angle > 0 ? NavTurnKind.sharpRight : NavTurnKind.sharpLeft;
-    return NavTurnKind.uTurn;
-  }
+      if (a < 45) {return angle > 0 ? NavTurnKind.slightRight : NavTurnKind.slightLeft;}
+      if (a < 120) {return angle > 0 ? NavTurnKind.right : NavTurnKind.left;}
+      if (a < 150) {return angle > 0 ? NavTurnKind.sharpRight : NavTurnKind.sharpLeft;}
+      return NavTurnKind.uTurn;}
 
   ({RouteTurn? turn, double distanceToTurnMeters}) nextTurnAtDistance(
     double currentMeters,
   ) {
     for (final t in _turns) {
       if (t.distanceMeters > currentMeters) {
-        return (turn: t, distanceToTurnMeters: t.distanceMeters - currentMeters);
+        return (
+          turn: t,
+          distanceToTurnMeters: t.distanceMeters - currentMeters
+        );
       }
     }
     return (turn: null, distanceToTurnMeters: 0);
@@ -284,7 +292,8 @@ class RouteGeometry {
 double routeHeadingAtDistance(RouteGeometry r, double currentMeters) {
   const distanceCalc = Distance();
   final a = r.pointAtDistance(currentMeters);
-  final target = r.totalMeters <= 0 ? 0.0 : (currentMeters + 3.0) % r.totalMeters;
+  final target =
+      r.totalMeters <= 0 ? 0.0 : (currentMeters + 3.0) % r.totalMeters;
   final b = r.pointAtDistance(target);
   return distanceCalc.bearing(a, b);
 }

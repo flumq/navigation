@@ -1,0 +1,8 @@
+[33mcommit 469626b6dc47e074c2241afac65dd5680935f133[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/fix/gps-course-route-2026-11-02[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: flumq <45239329+flumq@users.noreply.github.com>
+Date:   Tue Nov 3 11:29:27 2026 +0900
+
+    Keep GPS connector polyline compatible across flutter_map versions
+
+ lib/screens/field_calibration_screen.dart | 1 [31m-[m
+ 1 file changed, 1 deletion(-)

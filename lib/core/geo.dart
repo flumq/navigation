@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
 
 const double kEarthRadiusM = 6371000.0;

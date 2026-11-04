@@ -55,6 +55,7 @@ class AppConfig {
   static const int callIntervalMinSec = 15;
   static const int callIntervalMaxSec = 25;
   static const int callAcceptWindowSec = 15;
+
   /// 현재 위치에서 호출 지점까지 허용하는 최소/최대 거리(km).
   static const double callMinKm = 0.2;
   static const double callMaxKm = 3.0;
@@ -64,16 +65,20 @@ class AppConfig {
   // ── 관제 서버 쓰기 ─────────────────────────────────────────────
   /// 차량 상태 노드를 이 시간(ms)마다 한 번은 강제로 쓴다.
   static const int fleetWriteIdleMs = 2000;
+
   /// 이 거리(m) 이상 움직였을 때 상태 노드를 쓴다.
   static const double fleetWriteMoveM = 3;
+
   /// 궤적(fleet_trail) 업로드 주기(초).
   static const int trailUploadSec = 10;
 
   // ── 궤적 / 평균속도 ─────────────────────────────────────────────
   /// 서버로 올리는 궤적의 최대 점 개수.
   static const int trailMaxPoints = 400;
+
   /// 궤적을 추가로 기록하는 최소 이동 거리(m).
   static const double trailMinStepM = 3.0;
+
   /// 평균속도를 계산하는 이동 창(초).
   static const int avgSpeedWindowSec = 30;
 }

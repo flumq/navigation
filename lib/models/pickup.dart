@@ -18,7 +18,7 @@ class PickupPoint {
 
   /// 💡 기존 픽셀 Offset 대신 실제 지구 위·경도(LatLng) 좌표를 사용합니다.
   final LatLng latLng;
-  
+
   // 하위 호환성 및 기존 데이터 연동을 위한 편의 getter
   double get lat => latLng.latitude;
   double get lon => latLng.longitude;
@@ -53,8 +53,12 @@ class PickupPoint {
 
   factory PickupPoint.fromJson(Map<String, dynamic> j) {
     // 기존 JSON 키('x', 'y')와 신규 키('lat', 'lon') 모두 유연하게 호환 처리
-    final latitude = (j['lat'] as num?)?.toDouble() ?? (j['y'] as num?)?.toDouble() ?? 37.2315;
-    final longitude = (j['lon'] as num?)?.toDouble() ?? (j['x'] as num?)?.toDouble() ?? 126.7795;
+    final latitude = (j['lat'] as num?)?.toDouble() ??
+        (j['y'] as num?)?.toDouble() ??
+        37.2315;
+    final longitude = (j['lon'] as num?)?.toDouble() ??
+        (j['x'] as num?)?.toDouble() ??
+        126.7795;
 
     return PickupPoint(
       id: j['id'] as String,
